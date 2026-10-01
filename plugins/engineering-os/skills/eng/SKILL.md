@@ -17,7 +17,7 @@ Engine scripts: `node "${CLAUDE_PLUGIN_ROOT}/scripts/<name>.mjs"` — `eng-route
 ## 2. Classify and route (F0) — `/engineering-os:eng-intake` (inline for obvious TRIVIAL/SMALL)
 Score scope (trivial|small|medium|large) and risk (low|medium|high|critical, the max over the intake dimensions), plus risk flags. Then:
 `node "${CLAUDE_PLUGIN_ROOT}/scripts/eng-route.mjs" --request "<one-line summary>" --scope <s> --risk <r> --flags <f1,f2>`
-It returns CLASS, BUDGET (max agents, concurrency, research, retries, verify level), STAFF, REVIEWERS, MANDATORY. Follow it; record a reason in status.md whenever you deviate. Don't inflate the class to create process.
+It returns CLASS, BUDGET (max agents, concurrency, research, retries, verify level), STAFF, REVIEWERS, MANDATORY, and one DELIVERABLE line per risk flag. Follow it; record a reason in status.md whenever you deviate. Don't inflate the class to create process.
 
 ## 3. Lifecycle (phases overlap; skipping one is a deliberate, recorded risk decision)
 | Phase | TRIVIAL | SMALL | MEDIUM | LARGE | CRITICAL | Skill |

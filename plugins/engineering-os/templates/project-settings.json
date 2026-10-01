@@ -16,5 +16,8 @@
     "network": {
       "allowedDomains": ["registry.npmjs.org", "pypi.org", "files.pythonhosted.org", "github.com", "api.github.com", "objects.githubusercontent.com"]
     }
+  },
+  "worktree": {
+    "baseRef": "head"
   }
 }
