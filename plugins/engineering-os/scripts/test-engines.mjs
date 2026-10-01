@@ -104,7 +104,7 @@ try {
   s = verify(app, { only: ['lint'] });
   expect('verify: deleted test file => TESTS-TAMPER FAIL', s.verdict === 'FAIL' && s.lines.some((l) => /deleted test file/.test(l)), s.lines.join('\n'));
   git(app, 'checkout', '--', 'test/sum.test.js');
-  writeFileSync(join(app, 'test', 'sum.test.js'), readFileSync(join(app, 'test', 'sum.test.js'), 'utf8').replace("test('zero', () => assert.equal(sum(0, 0), 0));\n", ''));
+  writeFileSync(join(app, 'test', 'sum.test.js'), readFileSync(join(app, 'test', 'sum.test.js'), 'utf8').replace(/test\('zero', \(\) => assert\.equal\(sum\(0, 0\), 0\)\);\r?\n/, '')); // checkout may restore CRLF (core.autocrlf on Windows)
   s = verify(app, {});
   expect('verify: removed assertions => WARN (not FAIL)', s.verdict === 'PASS' && s.lines.some((l) => l.startsWith('TESTS-TAMPER: WARN')), s.lines.join('\n'));
   git(app, 'checkout', '--', 'test/sum.test.js');
