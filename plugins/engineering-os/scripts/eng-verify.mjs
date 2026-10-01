@@ -4,7 +4,7 @@
 // and stores full logs under .eng/evidence/. Exit 0 = PASS/NO_CHECKS, 1 = FAIL, 2 = usage error.
 // Usage: node eng-verify.mjs [projectDir] [--level targeted|standard|full] [--only k1,k2] [--skip k] [--base ref]
 //        [--network] [--timeout seconds] [--json]
-import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, symlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -53,7 +53,7 @@ export function analyzeDiff(root, base) {
       else if (line.startsWith('-')) removed.push({ path: current, text: line.slice(1) });
     }
   }
-  const untracked = (git(root, ['ls-files', '--others', '--exclude-standard']) || '').split('\n').filter(Boolean);
+  const untracked = (git(root, ['ls-files', '--others', '--exclude-standard']) || '').split('\n').filter(Boolean).slice(0, 500);
   for (const p of untracked) {
     files.push({ status: 'A', path: p, from: null });
     try { if (statSync(join(root, p)).size < 1_000_000) for (const t of readFileSync(join(root, p), 'utf8').split('\n')) added.push({ path: p, text: t }); } catch {}
@@ -73,6 +73,33 @@ export function analyzeDiff(root, base) {
   return { files, tamper, warn, secrets, testFilesChanged: files.filter((f) => TEST_PATH.test(f.path)).length };
 }
 
+const normalize = (out, root) => new Set(out.replaceAll(root, '<root>').replace(/\x1b\[[0-9;]*m/g, '').split('\n')
+  .map((l) => l.replace(/\d+(\.\d+)?\s?(ms|s)\b/g, '<t>').trim())
+  .filter((l) => l && !/^(#\s*(duration|start|tests|suites|pass|fail|cancelled|skipped|todo)|ℹ|>|\$ |\(cwd:)/.test(l)));
+
+// For a failing check, re-run it at the base revision in a temporary worktree. If every failure line also
+// appears at the base, the failure is pre-existing (reported, but not blamed on this change).
+export function baselineCompare(root, base, check, timeoutSec, currentOutput) {
+  if (!base) return null;
+  const tmp = join(root, '.eng', 'baseline', `wt-${process.pid}-${Date.now()}`);
+  try {
+    mkdirSync(join(root, '.eng', 'baseline'), { recursive: true });
+    if (git(root, ['worktree', 'add', '--detach', '--quiet', tmp, base]) === null) return null;
+    if (existsSync(join(root, 'node_modules'))) try { symlinkSync(join(root, 'node_modules'), join(tmp, 'node_modules'), 'junction'); } catch {}
+    const r = spawnSync(check.cmd, { cwd: join(tmp, check.cwd || '.'), shell: true, encoding: 'utf8', timeout: timeoutSec * 1000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, CI: '1', FORCE_COLOR: '0' } });
+    if (r.status === 0) return { preExisting: false };
+    const before = normalize(`${r.stdout || ''}${r.stderr || ''}`, tmp);
+    const now = normalize(currentOutput, root);
+    const fresh = [...now].filter((l) => !before.has(l));
+    return { preExisting: fresh.length === 0, fresh: fresh.slice(0, 3) };
+  } catch {
+    return null;
+  } finally {
+    git(root, ['worktree', 'remove', '--force', tmp]);
+    try { rmSync(tmp, { recursive: true, force: true }); } catch {}
+  }
+}
+
 function runCheck(root, check, evidenceDir, timeoutSec) {
   const started = Date.now();
   const r = spawnSync(check.cmd, { cwd: join(root, check.cwd || '.'), shell: true, encoding: 'utf8', timeout: timeoutSec * 1000, maxBuffer: 64 * 1024 * 1024, env: { ...process.env, CI: '1', FORCE_COLOR: '0' } });
@@ -84,7 +111,7 @@ function runCheck(root, check, evidenceDir, timeoutSec) {
   if (r.error?.code === 'ETIMEDOUT' || r.signal === 'SIGTERM') status = 'TIMEOUT';
   else if (r.status === 127 || /command not found|is not recognized as an internal or external command|ENOENT/i.test(output.slice(0, 400)) && r.status !== 0) status = 'NOT_RUN';
   const tail = output.trim().split('\n').filter(Boolean).slice(-3).join(' | ').slice(0, 240);
-  return { ...check, status, exit: r.status, ms, log, tail };
+  return { ...check, status, exit: r.status, ms, log, tail, output };
 }
 
 export function verify(root, opts = {}) {
@@ -110,6 +137,14 @@ export function verify(root, opts = {}) {
   const results = checks.map((c) => runCheck(root, c, evidenceDir, opts.timeout || 600));
 
   const base = resolveBase(root, opts.base);
+  if (opts.baseline !== false && base) {
+    for (const r of results.filter((x) => x.status === 'FAIL')) {
+      const cmp = baselineCompare(root, base, r, opts.timeout || 600, r.output);
+      if (cmp?.preExisting) { r.status = 'PRE_EXISTING'; r.tail = `also fails at ${base.slice(0, 7)} with the same output — not caused by this change`; }
+      else if (cmp?.fresh?.length) r.tail = `new vs ${base.slice(0, 7)}: ${cmp.fresh.join(' | ').slice(0, 200)}`;
+    }
+  }
+  for (const r of results) delete r.output;
   const diff = git(root, ['rev-parse', '--is-inside-work-tree']) ? analyzeDiff(root, base) : null;
   const lines = [];
   for (const kind of ORDER) {
@@ -117,7 +152,7 @@ export function verify(root, opts = {}) {
     const rs = results.filter((r) => r.kind === kind);
     if (!kinds.includes(kind)) continue;
     if (!rs.length) { lines.push(`${LABEL[kind]}: NOT_RUN (no ${kind} command configured)`); continue; }
-    const worst = ['FAIL', 'TIMEOUT', 'NOT_RUN', 'PASS'].find((s) => rs.some((r) => r.status === s));
+    const worst = ['FAIL', 'TIMEOUT', 'PRE_EXISTING', 'NOT_RUN', 'PASS'].find((s) => rs.some((r) => r.status === s));
     const detail = rs.filter((r) => r.status !== 'PASS').map((r) => `${r.id}: exit ${r.exit}${r.tail ? ` — ${r.tail}` : ''}`).join('; ');
     lines.push(`${LABEL[kind]}: ${worst} (${rs.map((r) => `\`${r.cmd}\` ${r.ms}ms`).join(', ')})${detail ? ` → ${detail}` : ''}`);
   }
@@ -134,7 +169,8 @@ export function verify(root, opts = {}) {
   }
   const ran = results.filter((r) => r.status !== 'NOT_RUN').length;
   const verdict = failed ? 'FAIL' : ran === 0 ? 'NO_CHECKS' : 'PASS';
-  lines.push(`VERDICT: ${verdict}${skipped.length ? ` (skipped: ${skipped.join(', ')})` : ''}`);
+  const pre = results.filter((r) => r.status === 'PRE_EXISTING').map((r) => r.id);
+  lines.push(`VERDICT: ${verdict}${pre.length ? ` (pre-existing failures, report but don't fix out of scope: ${pre.join(', ')})` : ''}${skipped.length ? ` (skipped: ${skipped.join(', ')})` : ''}`);
   lines.push(`EVIDENCE: ${evidenceDir.replace(`${root}/`, '').replace(`${root}\\`, '')} · checks from ${source}`);
   const summary = { verdict, level, base, at: new Date().toISOString(), lines, results: results.map(({ log, ...r }) => ({ ...r, log })), diff: diff && { files: diff.files.length, tamper: diff.tamper, warn: diff.warn, secrets: diff.secrets } };
   writeFileSync(join(evidenceDir, 'summary.json'), JSON.stringify(summary, null, 2));

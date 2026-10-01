@@ -124,6 +124,21 @@ try {
   s = verify(ovr, {});
   expect('verify: profile overrides disable and add checks', s.verdict === 'PASS' && s.results.length === 1 && s.results[0].id === 'custom', JSON.stringify(s.results));
 
+  // Baseline-aware failures: pre-existing failures are reported but don't fail the change; new ones do.
+  const lintScript = "import{readdirSync,readFileSync}from'node:fs';let bad=0;for(const f of readdirSync('src'))if(/\\bvar\\s/.test(readFileSync('src/'+f,'utf8'))){console.error('lint: src/'+f+' uses var');bad++}process.exit(bad?1:0)";
+  const base = fixture('baseline', {
+    'package.json': JSON.stringify({ type: 'module', scripts: { lint: 'node lint.mjs' } }),
+    'lint.mjs': lintScript, 'src/legacy.js': 'var x = 1;\nexport { x };\n', 'src/ok.js': 'export const ok = 1;\n', '.gitignore': '.eng/\n',
+  });
+  initRepo(base);
+  writeFileSync(join(base, 'src', 'ok.js'), 'export const ok = 2;\n');
+  s = verify(base, { only: ['lint'] });
+  expect('verify: pre-existing failure => PRE_EXISTING, verdict PASS', s.verdict === 'PASS' && s.results[0].status === 'PRE_EXISTING' && s.lines.some((l) => /pre-existing failures/.test(l)), s.lines.join('\n'));
+  writeFileSync(join(base, 'src', 'new.js'), 'var y = 2;\nexport { y };\n');
+  s = verify(base, { only: ['lint'] });
+  expect('verify: new failure on top of baseline => FAIL naming the new line', s.verdict === 'FAIL' && s.lines.some((l) => /new vs .*src\/new\.js/.test(l)), s.lines.join('\n'));
+  expect('verify: baseline worktree cleaned up', !(git(base, 'worktree', 'list').stdout || '').includes('.eng/baseline'));
+
   // ---------- plan checker ----------
   const header = '| ID | Objective | Capability | Owner | Depends | Wave | Files | Verifier | Risk | State |\n|---|---|---|---|---|---|---|---|---|---|\n';
   const row = (id, cap, deps, wave, files, state) => `| ${id} | do ${id} | ${cap} | x | ${deps} | ${wave} | ${files} | npm test | low | ${state} |\n`;

@@ -3,7 +3,7 @@
 set -euo pipefail
 
 _commit_with_profile() {
-  printf '.eng/\nnode_modules/\n.env\n' > .gitignore
+  printf '.eng/\n.bash*\n.profile\n.claude/\n.config/\n.cache/\n.npm/\n.local/\nnode_modules/\n.env\n' > .gitignore
   mkdir -p docs/engineering
   printf '# Engineering Status\n\n## Now\n- Objective: none (idle)\n- Phase: idle\n' > docs/engineering/status.md
   git init -q -b main
@@ -146,7 +146,7 @@ test('hours and minutes', () => assert.equal(parseDuration('1h5m'), 3900));
 test('seconds', () => assert.equal(parseDuration('9s'), 9));
 test('invalid', () => assert.throws(() => parseDuration('soon')));
 JS
-  printf '.eng/\n' > .gitignore
+  printf '.eng/\n.bash*\n.profile\n.claude/\n.config/\n.cache/\n.npm/\n.local/\n' > .gitignore
   mkdir -p docs/engineering && printf '# Engineering Status\n\n## Now\n- Objective: none\n' > docs/engineering/status.md
   git init -q -b main && git config user.email bench@example.com && git config user.name bench
   git add -A && git commit -qm "baseline: durations"
@@ -175,7 +175,7 @@ import assert from 'node:assert/strict';
 import { complete } from '../src/llm.js';
 test('stub answers', async () => assert.equal(await complete('Classify. text: I love it'), 'positive'));
 JS
-  printf '.eng/\n' > .gitignore
+  printf '.eng/\n.bash*\n.profile\n.claude/\n.config/\n.cache/\n.npm/\n.local/\n' > .gitignore
   mkdir -p docs/engineering && printf '# Engineering Status\n\n## Now\n- Objective: none\n' > docs/engineering/status.md
   git init -q -b main && git config user.email bench@example.com && git config user.name bench
   git add -A && git commit -qm "baseline: reviews"

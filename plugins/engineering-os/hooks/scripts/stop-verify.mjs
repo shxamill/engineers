@@ -41,6 +41,7 @@ try {
   const status = existsSync(join(dir, 'docs', 'engineering', 'status.md')) ? readFileSync(join(dir, 'docs', 'engineering', 'status.md'), 'utf8') : '';
   const now = (status.split(/^## /m).find((s) => s.startsWith('Now')) || '');
   const cls = (now.match(/Class:\s*\**\s*(TRIVIAL|SMALL|MEDIUM|LARGE|CRITICAL)\b/) || [])[1];
+  if (!cls) missing.push('classification: record `Class:` and `Flags:` in docs/engineering/status.md Now (/engineering-os:eng-intake); review gates are derived from it');
   if (cls && cls !== 'TRIVIAL') {
     const { parseYaml } = await import(new URL('../../scripts/lib/yaml-lite.mjs', import.meta.url));
     const reg = parseYaml(readFileSync(join(pluginRoot(), 'routing', 'capabilities.yaml'), 'utf8'));

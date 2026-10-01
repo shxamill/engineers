@@ -357,6 +357,9 @@ try {
   const g = (...a) => spawnSync('git', a, { cwd: repo, encoding: 'utf8' });
   g('init', '-q'); g('config', 'user.email', 't@e.st'); g('config', 'user.name', 't');
   writeFileSync(join(repo, 'src', 'a.js'), 'export const a = 1;\n');
+  mkdirSync(join(repo, 'docs', 'engineering'), { recursive: true });
+  writeFileSync(join(repo, 'docs', 'engineering', 'status.md'), '# Status\n## Now\n- Class: TRIVIAL\n');
+  writeFileSync(join(repo, '.gitignore'), '.eng/\n');
   g('add', '-A'); g('commit', '-qm', 'base');
   const stop = (extra = {}) => run('stop-verify.mjs', { hook_event_name: 'Stop', ...extra }, { CLAUDE_PROJECT_DIR: repo });
   expect('stop: clean tree passes', stop().code === 0);
@@ -383,7 +386,10 @@ try {
   g('add', '-A'); g('commit', '-qm', 'work committed in session');
   expect('stop: committed-but-unverified work still blocks', stop(sess).code === 2);
   writeFileSync(join(repo, '.eng', 'evidence', 'verify-latest.json'), JSON.stringify({ verdict: 'PASS' }));
-  expect('stop: verified committed work passes (no class declared)', stop(sess).code === 0);
+  expect('stop: verified committed TRIVIAL work passes', stop(sess).code === 0, stop(sess).stderr);
+  writeFileSync(join(repo, 'docs', 'engineering', 'status.md'), '# Status\n## Now\n- Objective: none (idle)\n');
+  const noClass = stop(sess);
+  expect('stop: source changes without a declared class block', noClass.code === 2 && /Class:/.test(noClass.stderr), noClass.stderr);
 
   // Required reviewers by declared class/flags, via the gate ledger written by check-handoff.
   mkdirSync(join(repo, 'docs', 'engineering'), { recursive: true });
