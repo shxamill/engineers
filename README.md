@@ -1,33 +1,29 @@
-# engineers
+# engineers — Engineering OS for Claude Code
 
-A production-grade virtual engineering organization for Claude Code. Give it one high-level goal; it classifies the work, staffs only the specialists it needs, and drives the work through requirements, design, architecture, security, planning, build, independent review, verification, release, and learning, with evidence at every gate.
+A reusable **Autonomous Engineering Operating System** packaged as a Claude Code plugin. Tell it "Build me a production-ready SaaS for X", "Add authentication", or "Fix this production bug". A CTO orchestrator classifies the request, routes it to the minimum capable team from a capability registry, and drives it through discovery → requirements → design → architecture → threat model → plan → build → verify → review → release → outcome → learning, with evidence at every gate.
 
-## Use it
-Open this repo in Claude Code (CLI, desktop, web, or VS Code) and type:
-
+## Install into a project
 ```
-/eng Build me a SaaS application for <X>
+/plugin marketplace add shxamill/engineers
+/plugin install engineering-os@engineers
+/engineering-os:eng-init
+/engineering-os:eng Build me a production-ready SaaS for invoicing
 ```
+Requires Claude Code 2.1+ and Node.js 18+ (Windows, macOS, Linux). Full manual: [plugins/engineering-os/README.md](plugins/engineering-os/README.md).
 
-Other entry points: `/eng-status`, `/eng-debug <symptom>`, `/eng-review`, and the rest listed in the [operating manual](docs/engineering/README.md).
-
-## What's inside
+## Repository layout
 | Path | Contents |
 |---|---|
-| `CLAUDE.md` | The constitution: universal rules, human decision gates, handoff contract |
-| `.claude/agents/` | 15 specialist agents covering 29 engineering roles |
-| `.claude/skills/` | `/eng` orchestrator + 13 phase workflows |
-| `.claude/rules/` | Path-scoped engineering rules (load only for matching files) |
-| `.claude/hooks/` + `.claude/settings.json` | Deterministic guardrails: destructive-command gate, secrets guard, formatter, evidence check, session state |
-| `docs/engineering/` | Durable project state, decisions, templates |
-| `scripts/` | `validate-org.mjs` (config validator), `verify-hooks.mjs` (hook test suite) |
+| `.claude-plugin/marketplace.json` | Marketplace listing the plugin |
+| `plugins/engineering-os/` | The plugin: agents, skills, hooks, routing registry, engines, templates, evals |
+| `docs/engineering/` | The OS's own engineering state: V2 audit, research, ADRs, decisions, retrospectives, benchmark results |
+| `.claude/settings.json` | Dogfoods the plugin from this directory |
 
-## Requirements
-Claude Code 2.1+ and Node.js 18+ on PATH (Windows, macOS, or Linux).
-
-## Verify the org
+## Verify the OS
 ```
-node scripts/validate-org.mjs
-node scripts/verify-hooks.mjs
+node plugins/engineering-os/scripts/validate-org.mjs
+node plugins/engineering-os/scripts/verify-hooks.mjs
+node plugins/engineering-os/scripts/test-engines.mjs
+claude plugin validate plugins/engineering-os
 ```
-Run from the repo root in any terminal (PowerShell, bash, or zsh). CI runs both on every push.
+CI runs the first three on Ubuntu and Windows.

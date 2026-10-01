@@ -1,0 +1,618 @@
+# Engineering OS capability registry (machine-readable; read by scripts/eng-route.mjs and the validator).
+# Capabilities are activated on demand; several share one agent (fewer, deeper contexts).
+# tools / model / max_turns MUST equal the agent's frontmatter (validator-enforced).
+# topology: Team Topologies type - stream (value delivery), enabling (specialist support),
+#           platform (shared capability), subsystem (complicated subsystem).
+version: 1
+
+# Per-class budgets. The orchestrator (main session) is always the owner; "max_agents" counts spawned subagents.
+budgets:
+  TRIVIAL:
+    max_agents: 0
+    concurrency: 0
+    research: none
+    retries: 1
+    verify: targeted
+    reviewers: []
+  SMALL:
+    max_agents: 1
+    concurrency: 1
+    research: none
+    retries: 2
+    verify: standard
+    reviewers: [code-review]
+  MEDIUM:
+    max_agents: 4
+    concurrency: 2
+    research: quick
+    retries: 2
+    verify: standard
+    reviewers: [scope-judge, code-review]
+  LARGE:
+    max_agents: 8
+    concurrency: 4
+    research: standard
+    retries: 2
+    verify: full
+    reviewers: [scope-judge, code-review, adversarial-qa]
+  CRITICAL:
+    max_agents: 10
+    concurrency: 3
+    research: standard
+    retries: 2
+    verify: full
+    reviewers: [scope-judge, code-review, appsec, adversarial-qa]
+
+# Risk flag -> capabilities that become mandatory (in addition to the class reviewers).
+risk_requirements:
+  auth: [threat-modeling, appsec]
+  payments: [threat-modeling, appsec, privacy]
+  pii: [privacy, appsec]
+  secrets: [appsec]
+  prod-data: [database, release]
+  infra: [platform-engineering, appsec]
+  external-input: [appsec]
+  new-dependency: [supply-chain]
+  ai: [ai-ml]
+  ui: [ux]
+  irreversible: [architecture]
+
+capabilities:
+  - id: product-management
+    agent: product-manager
+    group: product
+    topology: stream
+    purpose: Problem, users, outcomes, scope, requirements, acceptance criteria
+    triggers: [requirements, user story, acceptance criteria, mvp, scope, product, saas, feature request]
+    risk_triggers: []
+    classes: [MEDIUM, LARGE, CRITICAL]
+    inputs: [request, research.md]
+    outputs: [product.md, requirements.md]
+    tools: [Read, Grep, Glob, Write, Edit, WebSearch, WebFetch]
+    scopes: ["docs/engineering/**"]
+    model: sonnet
+    max_turns: 30
+    parallel: false
+    depends: []
+    reviewers: []
+    security: none
+  - id: product-research
+    agent: researcher
+    group: product
+    topology: enabling
+    purpose: Evidence for decisions (technical, domain, competitive)
+    triggers: [research, compare, which library, best practice, competitor, market, evaluate options]
+    risk_triggers: []
+    classes: [SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [decision question]
+    outputs: [research.md entry]
+    tools: [Read, Grep, Glob, WebSearch, WebFetch, Write, Edit]
+    scopes: ["docs/engineering/research.md"]
+    model: sonnet
+    max_turns: 30
+    parallel: true
+    depends: []
+    reviewers: []
+    security: none
+  - id: product-analytics
+    agent: product-manager
+    group: product
+    topology: enabling
+    purpose: Success metrics, event definitions, outcome signals
+    triggers: [metric, analytics, conversion, retention, adoption, kpi, success signal]
+    risk_triggers: [pii]
+    classes: [MEDIUM, LARGE, CRITICAL]
+    inputs: [requirements.md]
+    outputs: [requirements.md#metrics]
+    tools: [Read, Grep, Glob, Write, Edit, WebSearch, WebFetch]
+    scopes: ["docs/engineering/**"]
+    model: sonnet
+    max_turns: 30
+    parallel: true
+    depends: [product-management]
+    reviewers: []
+    security: low
+  - id: ux
+    agent: ux-designer
+    group: design
+    topology: stream
+    purpose: Flows, information architecture, states, accessibility
+    triggers: [ux, user flow, screen, page, dashboard, onboarding, form, redesign, usability]
+    risk_triggers: []
+    classes: [MEDIUM, LARGE, CRITICAL]
+    inputs: [requirements.md]
+    outputs: [ux.md]
+    tools: [Read, Grep, Glob, Write, Edit, WebFetch]
+    scopes: ["docs/engineering/ux.md"]
+    model: sonnet
+    max_turns: 30
+    parallel: false
+    depends: [product-management]
+    reviewers: []
+    security: none
+  - id: ui-visual
+    agent: ux-designer
+    group: design
+    topology: stream
+    purpose: Visual hierarchy, layout, typography, responsive polish
+    triggers: [ui, visual, layout, styling, theme, typography, look and feel, polish]
+    risk_triggers: []
+    classes: [SMALL, MEDIUM, LARGE]
+    inputs: [ux.md]
+    outputs: [ux.md#visual]
+    tools: [Read, Grep, Glob, Write, Edit, WebFetch]
+    scopes: ["docs/engineering/ux.md"]
+    model: sonnet
+    max_turns: 30
+    parallel: true
+    depends: [ux]
+    reviewers: []
+    security: none
+  - id: design-systems
+    agent: ux-designer
+    group: design
+    topology: platform
+    purpose: Tokens, reusable components, consistency
+    triggers: [design system, design tokens, component library, tokens]
+    risk_triggers: []
+    classes: [MEDIUM, LARGE]
+    inputs: [ux.md, existing components]
+    outputs: [ux.md#tokens]
+    tools: [Read, Grep, Glob, Write, Edit, WebFetch]
+    scopes: ["docs/engineering/ux.md"]
+    model: sonnet
+    max_turns: 30
+    parallel: true
+    depends: []
+    reviewers: []
+    security: none
+  - id: architecture
+    agent: architect
+    group: software
+    topology: enabling
+    purpose: Boundaries, contracts, data model, trade-offs, ADRs
+    triggers: [architecture, design the system, database choice, scalability, migrate, microservice, queue, api design, saas]
+    risk_triggers: [irreversible]
+    classes: [MEDIUM, LARGE, CRITICAL]
+    inputs: [requirements.md, ux.md, research.md]
+    outputs: [architecture.md, adr/]
+    tools: [Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch]
+    scopes: ["docs/engineering/**"]
+    model: opus
+    max_turns: 40
+    parallel: false
+    depends: [product-management]
+    reviewers: []
+    security: medium
+  - id: frontend
+    agent: frontend-engineer
+    group: software
+    topology: stream
+    purpose: Web UI implementation with component tests
+    triggers: [frontend, react, next, vite, component, css, page, dashboard, ui, tailwind]
+    risk_triggers: []
+    classes: [SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [task, ux.md, architecture.md#contracts]
+    outputs: [code, tests]
+    tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
+    scopes: ["**/*.{tsx,jsx,vue,svelte,astro,css,scss}", "**/{components,pages,app,views}/**"]
+    model: sonnet
+    max_turns: 60
+    parallel: true
+    depends: []
+    reviewers: [code-review]
+    security: low
+  - id: backend
+    agent: backend-engineer
+    group: software
+    topology: stream
+    purpose: APIs, business logic, server code with tests
+    triggers: [backend, api, endpoint, server, express, fastify, flask, fastapi, django, route, webhook, authentication, login, cli]
+    risk_triggers: [auth, external-input]
+    classes: [SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [task, architecture.md#contracts, requirements.md#AC]
+    outputs: [code, tests]
+    tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
+    scopes: ["**/{api,server,routes,controllers,handlers,services,middleware,bin,src}/**"]
+    model: sonnet
+    max_turns: 60
+    parallel: true
+    depends: []
+    reviewers: [code-review]
+    security: medium
+  - id: database
+    agent: backend-engineer
+    group: software
+    topology: stream
+    purpose: Schemas, migrations, queries, data integrity
+    triggers: [database, schema, migration, sql, prisma, postgres, mongodb, query, index]
+    risk_triggers: [prod-data, pii]
+    classes: [SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [architecture.md#data-model]
+    outputs: [migrations, code, tests]
+    tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
+    scopes: ["**/{migrations,prisma,db,models,schema}/**", "**/*.sql"]
+    model: sonnet
+    max_turns: 60
+    parallel: false
+    depends: [architecture]
+    reviewers: [code-review]
+    security: medium
+  - id: mobile
+    agent: frontend-engineer
+    group: software
+    topology: stream
+    purpose: Mobile and responsive client implementation
+    triggers: [mobile, react native, expo, ios, android, pwa]
+    risk_triggers: []
+    classes: [SMALL, MEDIUM, LARGE]
+    inputs: [task, ux.md]
+    outputs: [code, tests]
+    tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
+    scopes: ["**/{mobile,app,ios,android}/**"]
+    model: sonnet
+    max_turns: 60
+    parallel: true
+    depends: []
+    reviewers: [code-review]
+    security: low
+  - id: ai-ml
+    agent: ai-engineer
+    group: software
+    topology: subsystem
+    purpose: LLM/ML features with evals, guardrails, cost/latency budgets
+    triggers: [ai, llm, gpt, claude, model, prompt, rag, embedding, agent, classifier, sentiment, summarize, ml]
+    risk_triggers: [ai, pii, external-input]
+    classes: [SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [task, requirements.md#AC]
+    outputs: [code, evals, tests]
+    tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell, WebFetch]
+    scopes: ["**/{ai,llm,ml,prompts,evals}/**"]
+    model: sonnet
+    max_turns: 60
+    parallel: true
+    depends: []
+    reviewers: [code-review]
+    security: medium
+  - id: integrations
+    agent: backend-engineer
+    group: software
+    topology: stream
+    purpose: Third-party APIs, webhooks, SDKs
+    triggers: [integration, stripe, webhook, oauth, third-party, sdk, slack, email provider]
+    risk_triggers: [secrets, external-input, payments]
+    classes: [SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [task, research.md]
+    outputs: [code, tests]
+    tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
+    scopes: ["**/{integrations,clients,webhooks}/**"]
+    model: sonnet
+    max_turns: 60
+    parallel: true
+    depends: []
+    reviewers: [code-review]
+    security: medium
+  - id: devops
+    agent: platform-engineer
+    group: platform
+    topology: platform
+    purpose: Build tooling, CI/CD, containers, environments
+    triggers: [ci, cd, pipeline, github actions, docker, dockerfile, build, environment, deploy]
+    risk_triggers: [infra, secrets]
+    classes: [SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [architecture.md#deployment]
+    outputs: [ci config, docker, scripts]
+    tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
+    scopes: [".github/workflows/**", "**/Dockerfile*", "**/docker-compose*"]
+    model: sonnet
+    max_turns: 50
+    parallel: true
+    depends: []
+    reviewers: [code-review]
+    security: high
+  - id: platform-engineering
+    agent: platform-engineer
+    group: platform
+    topology: platform
+    purpose: Infrastructure as code, environments, shared platform
+    triggers: [terraform, kubernetes, infrastructure, cloud, aws, gcp, azure, iac]
+    risk_triggers: [infra]
+    classes: [MEDIUM, LARGE, CRITICAL]
+    inputs: [architecture.md]
+    outputs: [iac, runbooks]
+    tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
+    scopes: ["**/{infra,terraform,k8s,helm,deploy}/**", "**/*.tf"]
+    model: sonnet
+    max_turns: 50
+    parallel: false
+    depends: [architecture]
+    reviewers: [code-review, appsec]
+    security: high
+  - id: sre
+    agent: reliability-engineer
+    group: platform
+    topology: enabling
+    purpose: Observability, SLOs, alerts, resilience
+    triggers: [monitoring, observability, logging, metrics, tracing, slo, alert, health check, incident, uptime]
+    risk_triggers: []
+    classes: [MEDIUM, LARGE, CRITICAL]
+    inputs: [requirements.md#NFR, architecture.md]
+    outputs: [instrumentation, dashboards, alerts]
+    tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
+    scopes: ["**/{observability,monitoring,telemetry}/**"]
+    model: sonnet
+    max_turns: 50
+    parallel: true
+    depends: []
+    reviewers: [code-review]
+    security: low
+  - id: performance
+    agent: reliability-engineer
+    group: platform
+    topology: enabling
+    purpose: Measured performance optimization and load testing
+    triggers: [performance, slow, latency, optimize, load test, memory leak, bundle size, throughput]
+    risk_triggers: []
+    classes: [SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [NFR targets]
+    outputs: [measurements, changes]
+    tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
+    scopes: ["**"]
+    model: sonnet
+    max_turns: 50
+    parallel: true
+    depends: []
+    reviewers: [code-review]
+    security: none
+  - id: release
+    agent: platform-engineer
+    group: platform
+    topology: platform
+    purpose: Release readiness, rollout, rollback mechanics
+    triggers: [release, deploy, rollout, canary, feature flag, rollback, production, staging, preview]
+    risk_triggers: [prod-data, infra, irreversible]
+    classes: [MEDIUM, LARGE, CRITICAL]
+    inputs: [release-plan.md]
+    outputs: [release-plan.md, deploy changes]
+    tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
+    scopes: [".github/workflows/**", "**/{deploy,release}/**"]
+    model: sonnet
+    max_turns: 50
+    parallel: false
+    depends: []
+    reviewers: [code-review]
+    security: high
+  - id: qa
+    agent: test-engineer
+    group: quality
+    topology: enabling
+    purpose: Test plans, acceptance coverage, layered verification
+    triggers: [test plan, qa, coverage, acceptance, regression, verify]
+    risk_triggers: []
+    classes: [MEDIUM, LARGE, CRITICAL]
+    inputs: [requirements.md#AC]
+    outputs: [test-plan.md, tests]
+    tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
+    scopes: ["**/{test,tests,__tests__,e2e,spec}/**", "**/*.{test,spec}.*"]
+    model: sonnet
+    max_turns: 50
+    parallel: true
+    depends: []
+    reviewers: []
+    security: none
+  - id: test-automation
+    agent: test-engineer
+    group: quality
+    topology: platform
+    purpose: Test infrastructure, e2e, accessibility automation
+    triggers: [e2e, playwright, cypress, test infrastructure, flaky test, accessibility test]
+    risk_triggers: []
+    classes: [SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [test-plan.md]
+    outputs: [test infra, tests]
+    tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
+    scopes: ["**/{e2e,playwright,cypress,test,tests}/**"]
+    model: sonnet
+    max_turns: 50
+    parallel: true
+    depends: []
+    reviewers: []
+    security: none
+  - id: code-review
+    agent: code-reviewer
+    group: quality
+    topology: enabling
+    purpose: Independent fresh-context review of the actual diff
+    triggers: [review, code review]
+    risk_triggers: []
+    classes: [SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [diff, requirements.md#AC, architecture.md]
+    outputs: [verdict]
+    tools: [Read, Grep, Glob, Bash, PowerShell]
+    scopes: []
+    model: opus
+    max_turns: 40
+    parallel: true
+    depends: []
+    reviewers: []
+    security: medium
+  - id: scope-judge
+    agent: scope-judge
+    group: quality
+    topology: enabling
+    purpose: Intent/scope check of request vs ACs vs diff vs tests
+    triggers: [scope, intent]
+    risk_triggers: []
+    classes: [MEDIUM, LARGE, CRITICAL]
+    inputs: [request, requirements.md#AC, diff, verify results]
+    outputs: [verdict]
+    tools: [Read, Grep, Glob, Bash, PowerShell]
+    scopes: []
+    model: sonnet
+    max_turns: 15
+    parallel: true
+    depends: []
+    reviewers: []
+    security: low
+  - id: adversarial-qa
+    agent: adversarial-qa
+    group: quality
+    topology: enabling
+    purpose: Actively break the feature (inputs, concurrency, failures, UI extremes)
+    triggers: [break it, edge cases, stress, abuse, red team]
+    risk_triggers: [external-input, auth, payments]
+    classes: [MEDIUM, LARGE, CRITICAL]
+    inputs: [requirements.md#AC, architecture.md#failure-modes]
+    outputs: [failure report]
+    tools: [Read, Grep, Glob, Bash, PowerShell]
+    scopes: []
+    model: sonnet
+    max_turns: 40
+    parallel: true
+    depends: []
+    reviewers: []
+    security: medium
+  - id: debugging
+    agent: debugger
+    group: quality
+    topology: enabling
+    purpose: Forensic root cause, minimal fix, regression test
+    triggers: [bug, error, failing, broken, crash, exception, regression, flaky, incident, fix]
+    risk_triggers: []
+    classes: [SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [symptom, repro command, evidence path]
+    outputs: [fix, regression test, root cause]
+    tools: [Read, Grep, Glob, Bash, PowerShell, Edit, Write]
+    scopes: ["**"]
+    model: opus
+    max_turns: 60
+    parallel: false
+    depends: []
+    reviewers: [code-review]
+    security: low
+  - id: appsec
+    agent: security-engineer
+    group: security
+    topology: enabling
+    purpose: Independent security review of security-relevant diffs
+    triggers: [security, vulnerability, owasp, xss, injection, csrf, ssrf]
+    risk_triggers: [auth, payments, pii, secrets, external-input, infra]
+    classes: [SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [diff, security.md]
+    outputs: [verdict, findings]
+    tools: [Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch]
+    scopes: ["docs/engineering/security.md"]
+    model: opus
+    max_turns: 50
+    parallel: true
+    depends: []
+    reviewers: []
+    security: high
+  - id: security-testing
+    agent: security-engineer
+    group: security
+    topology: enabling
+    purpose: Authorized dynamic and dependency testing (local/dev/staging only)
+    triggers: [pentest, penetration, security test, dast, fuzz]
+    risk_triggers: [auth, payments, external-input]
+    classes: [LARGE, CRITICAL]
+    inputs: [running local/dev target]
+    outputs: [findings]
+    tools: [Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch]
+    scopes: []
+    model: opus
+    max_turns: 50
+    parallel: true
+    depends: []
+    reviewers: []
+    security: high
+  - id: threat-modeling
+    agent: security-engineer
+    group: security
+    topology: enabling
+    purpose: Design-time threat model (assets, boundaries, STRIDE, mitigations)
+    triggers: [threat model, attack surface, trust boundary]
+    risk_triggers: [auth, payments, pii, external-input, infra]
+    classes: [MEDIUM, LARGE, CRITICAL]
+    inputs: [architecture.md]
+    outputs: [security.md]
+    tools: [Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch]
+    scopes: ["docs/engineering/security.md"]
+    model: opus
+    max_turns: 50
+    parallel: false
+    depends: [architecture]
+    reviewers: []
+    security: high
+  - id: privacy
+    agent: security-engineer
+    group: security
+    topology: enabling
+    purpose: Data minimization, retention, consent, PII handling
+    triggers: [privacy, gdpr, personal data, pii, consent, retention]
+    risk_triggers: [pii, payments]
+    classes: [MEDIUM, LARGE, CRITICAL]
+    inputs: [architecture.md#data-model]
+    outputs: [security.md#privacy]
+    tools: [Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch]
+    scopes: ["docs/engineering/security.md"]
+    model: opus
+    max_turns: 50
+    parallel: true
+    depends: []
+    reviewers: []
+    security: high
+  - id: supply-chain
+    agent: security-engineer
+    group: security
+    topology: enabling
+    purpose: Dependency, build, and CI/CD supply-chain risk
+    triggers: [dependency, npm install, add package, supply chain, sbom, github actions]
+    risk_triggers: [new-dependency, infra]
+    classes: [SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [manifest diff, workflow diff]
+    outputs: [findings]
+    tools: [Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch]
+    scopes: []
+    model: opus
+    max_turns: 50
+    parallel: true
+    depends: []
+    reviewers: []
+    security: high
+  - id: documentation
+    agent: tech-writer
+    group: knowledge
+    topology: enabling
+    purpose: READMEs, guides, API docs, release notes
+    triggers: [readme, documentation, docs, guide, changelog, release notes]
+    risk_triggers: []
+    classes: [TRIVIAL, SMALL, MEDIUM, LARGE, CRITICAL]
+    inputs: [code, artifacts]
+    outputs: [docs]
+    tools: [Read, Grep, Glob, Edit, Write]
+    scopes: ["**/*.md", "docs/**"]
+    model: haiku
+    max_turns: 25
+    parallel: true
+    depends: []
+    reviewers: []
+    security: none
+  - id: developer-experience
+    agent: tech-writer
+    group: knowledge
+    topology: platform
+    purpose: Setup scripts docs, onboarding, contributor guides
+    triggers: [onboarding, setup guide, contributing, developer experience, dx]
+    risk_triggers: []
+    classes: [SMALL, MEDIUM, LARGE]
+    inputs: [project-profile.json]
+    outputs: [docs]
+    tools: [Read, Grep, Glob, Edit, Write]
+    scopes: ["**/*.md", "docs/**"]
+    model: haiku
+    max_turns: 25
+    parallel: true
+    depends: []
+    reviewers: []
+    security: none

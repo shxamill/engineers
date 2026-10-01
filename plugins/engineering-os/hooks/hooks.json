@@ -1,0 +1,43 @@
+{
+  "description": "Engineering OS guardrails: state + constitution injection, destructive/secret command gates, formatter, handoff evidence contract, verification stop gate.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/scripts/session-context.mjs"], "timeout": 10 }]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "engineering-os:",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/scripts/subagent-context.mjs"], "timeout": 10 }]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-bash.mjs"], "timeout": 10 }]
+      },
+      {
+        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Grep",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/scripts/guard-secrets.mjs"], "timeout": 10 }]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/scripts/format-edited.mjs"], "timeout": 30 }]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/scripts/check-handoff.mjs"], "timeout": 10 }]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/scripts/stop-verify.mjs"], "timeout": 15 }]
+      }
+    ]
+  }
+}

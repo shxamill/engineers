@@ -1,0 +1,10 @@
+{
+  "$schema": "https://anthropic.com/claude-code/plugin.schema.json",
+  "name": "engineering-os",
+  "version": "2.0.0",
+  "description": "Autonomous Engineering OS: a CTO orchestrator that staffs on-demand specialist capabilities through an adaptive, verification-driven lifecycle (discovery to outcome), with deterministic guardrails and a native benchmark suite.",
+  "author": { "name": "Velune Productions", "email": "veluneproductions@gmail.com" },
+  "repository": "https://github.com/shxamill/engineers",
+  "license": "MIT",
+  "keywords": ["engineering", "sdlc", "orchestration", "verification", "security", "agents"]
+}

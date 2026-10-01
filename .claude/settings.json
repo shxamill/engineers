@@ -1,5 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "extraKnownMarketplaces": {
+    "engineers": { "source": { "source": "directory", "path": "." } }
+  },
+  "enabledPlugins": {
+    "engineering-os@engineers": true
+  },
   "permissions": {
     "allow": [
       "Bash(git status *)",
@@ -11,8 +17,7 @@
       "Bash(git merge-base *)",
       "Bash(git rev-parse *)",
       "Bash(git ls-files *)",
-      "Bash(node scripts/validate-org.mjs)",
-      "Bash(node scripts/verify-hooks.mjs)"
+      "Bash(node plugins/engineering-os/scripts/*)"
     ],
     "deny": [
       "Read(**/.env)",
@@ -20,35 +25,6 @@
       "Read(**/.env.production)",
       "Read(**/id_rsa)",
       "Read(**/id_ed25519)"
-    ]
-  },
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|resume|clear|compact",
-        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/session-context.mjs"], "timeout": 10 }]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash|PowerShell",
-        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-bash.mjs"], "timeout": 10 }]
-      },
-      {
-        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Grep",
-        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-secrets.mjs"], "timeout": 10 }]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/format-edited.mjs"], "timeout": 30 }]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [{ "type": "command", "command": "node", "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/check-handoff.mjs"], "timeout": 10 }]
-      }
     ]
   }
 }

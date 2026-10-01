@@ -9,17 +9,18 @@ permissions:
 
 jobs:
   validate:
-    name: validate org (${{ matrix.os }})
+    name: validate engineering-os (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - run: node --version
-      - run: node scripts/validate-org.mjs
-      - run: node scripts/verify-hooks.mjs
+      - run: node plugins/engineering-os/scripts/validate-org.mjs
+      - run: node plugins/engineering-os/scripts/verify-hooks.mjs
+      - run: node plugins/engineering-os/scripts/test-engines.mjs

@@ -1,0 +1,12 @@
+{
+  "name": "engineers",
+  "owner": { "name": "Velune Productions", "email": "veluneproductions@gmail.com" },
+  "description": "Engineering OS: an AI-operated engineering organization for Claude Code (orchestration, verification, security guardrails, benchmarks).",
+  "plugins": [
+    {
+      "name": "engineering-os",
+      "source": "./plugins/engineering-os",
+      "description": "Autonomous Engineering OS for Claude Code"
+    }
+  ]
+}
