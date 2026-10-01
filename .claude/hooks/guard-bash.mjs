@@ -2,7 +2,7 @@
 // PreToolUse(Bash|PowerShell): stop destructive, irreversible, or secret-exposing commands.
 // Gated actions proceed only after explicit human approval, signalled by including the marker
 // ENG_HUMAN_APPROVED=1 in the command. Catastrophic actions are never allowed.
-import { readInput, block, isSecretPath } from './lib.mjs';
+import { readInput, block, isSecretPath, findSecret } from './lib.mjs';
 
 const cmd = String(readInput()?.tool_input?.command ?? '');
 if (!cmd.trim()) process.exit(0);
@@ -113,6 +113,8 @@ for (const seg of segments) {
 }
 if (segments.some((s) => /^(printenv|env|export|set|get-childitem env:|gci env:|dir env:)$/i.test(s.trim())))
   gated.push('dumping the whole environment (may contain secrets)');
+const leaked = findSecret(cmd);
+if (leaked) gated.push(`command contains what looks like a real ${leaked} (reference an environment variable instead)`);
 
 const tag = 'BLOCKED by .claude/hooks/guard-bash.mjs';
 if (catastrophic.length)

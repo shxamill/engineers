@@ -35,7 +35,7 @@ Class = max(size, risk). Any risk flag (auth, payments, PII, secrets, prod data,
 | G4 Security | – | if risk flag | threat check | threat model | threat model |
 | G5 Plan | – | – | `/eng-plan` | `/eng-plan` | `/eng-plan` |
 | G6 Build | direct | direct or 1 builder | `/eng-build` | `/eng-build` (parallel) | `/eng-build` |
-| G7 Review | self-check diff | `/eng-review` if diff >50 lines or risk flag | `/eng-review` | `/eng-review` | `/eng-review` + `/eng-secreview` |
+| G7 Review | self-check diff | `/eng-review` (+ `/eng-secreview` if risk flag) | `/eng-review` | `/eng-review` | `/eng-review` + `/eng-secreview` |
 | G8 Verify | relevant check | `/eng-test` (light) | `/eng-test` | `/eng-test` + adversarial | + perf + rollback test |
 | G9 Release | – | – | if deploying | `/eng-release` | `/eng-release` staged |
 | G10 Outcome | – | – | if deployed | verify | verify + observe |
@@ -95,5 +95,8 @@ Ask only for the CLAUDE.md human decision gates: one AskUserQuestion batch, ≤3
 ## 9. Persist state (as you go, not at the end)
 After each gate, update `docs/engineering/status.md` (Now, Active work, Gates). Durable decisions → `decisions.md`. Keep each artifact compact and current.
 
-## 10. Done = every gate required for the class passed with evidence
-Final report to the user (concise): outcome, what changed, evidence (checks and results), gates passed, open risks and assumptions, next step. Never report "done" with a required gate open; say exactly which gate is open and why.
+## 10. Commit
+Commit verified work in focused commits (`<type>(<scope>): <summary> [T-n]`). If on the default branch, first create `eng/<slug>`. Stage only files this work changed (`git add <paths>`, never `git add -A` over unrelated user changes). Push or open PRs only when the user asks, or via `/eng-release`.
+
+## 11. Done = every gate required for the class passed with evidence
+Before the final report, write the gate table for the class: `Gate | required? | evidence (command/agent verdict)`. A required gate without evidence is not done: run it now (an independent review is never optional for SMALL and above). Final report (concise): outcome, what changed, the gate table, open risks and assumptions, next step.

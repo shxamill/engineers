@@ -145,6 +145,15 @@ for (const [name, input, want] of SECRETS) {
   const r = run('guard-secrets.mjs', input);
   expect(`secrets: ${name}`, r.code === want, `exit=${r.code} want=${want} ${r.stderr.trim()}`);
 }
+const SECRET_COMMANDS = [
+  ['token literal in curl', `curl -H "Authorization: Bearer ${fakeGh}" https://api.example.com`, 2],
+  ['key written via heredoc', `python3 - <<'EOF'\nopen("c.py","w").write("KEY='${fakeAws}'")\nEOF`, 2],
+  ['env var reference', 'curl -H "Authorization: Bearer $GITHUB_TOKEN" https://api.example.com', 0],
+];
+for (const [name, command, want] of SECRET_COMMANDS) {
+  const r = run('guard-bash.mjs', { tool_input: { command } });
+  expect(`bash secrets: ${name}`, r.code === want, `exit=${r.code} want=${want} ${r.stderr.trim()}`);
+}
 
 // ---------- check-handoff ----------
 const GOOD = 'STATUS: PASS\nOBJECTIVE: x\nCHANGED: a.ts\nRESULT:\n- done\nEVIDENCE:\n- `npm test` → 12 passed\nRISKS: none\nFOLLOW_UP: none';

@@ -15,7 +15,7 @@ argument-hint: [T-ids | next-wave]
    - Re-run the cheapest decisive VERIFY command yourself.
    - FAIL/BLOCKED → `/eng-debug` or re-delegate with the evidence and a sharper scope. Max 2 attempts per approach, then change approach.
 5. **Integrate worktree branches one at a time:** `git merge --no-ff <branch>`, then run the fast checks (lint, typecheck, affected tests). Resolve conflicts yourself, preserving both intents; when intents truly conflict, ask the owning agent or the human. Then `git worktree remove <path>` and `git branch -d <branch>`.
-6. **Commit per task** in the main tree: `<type>(<scope>): <summary> [T-n]` (types: feat, fix, refactor, test, docs, chore, perf, ci, build).
+6. **Commit per task** in the main tree: `<type>(<scope>): <summary> [T-n]` (types: feat, fix, refactor, test, docs, chore, perf, ci, build). Stage only the task's files, never `git add -A` over unrelated user changes.
 7. **Record:** mark the task done in implementation-plan.md and update status.md (Active work, Completed). New issues found → new tasks, not silent fixes.
 
 When a wave is integrated and green, move on to the next wave, or to review (G7) when the plan is complete.
