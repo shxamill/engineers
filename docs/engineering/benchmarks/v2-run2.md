@@ -49,5 +49,17 @@ All deterministic graders passed in run 2. Every failure was a 3/3 LLM-judge FAI
 | 11 | No labeled eval set and no measured accuracy, although `ai` made `ai-ml` mandatory. The router said "mandatory" but nothing named the deliverable | OS defect | PROC-12 `ai` deliverable (eval set + score) |
 | 06 | The decision to build directly was explained. Judge reason unknown (traces gone); possibly the stale-review narrative or the open truncate edge cases | Unexplained / judge variance | watched in re-run |
 
+## Re-run of the 6 failures after PROC-12 (one invocation per case, Sonnet)
+| Case | Run 2 | Re-run | Cost $ | Note |
+|---|---|---|---|---|
+| 01-trivial-change | 0.67 | **1.00** | 0.09 | clean SCOPE line |
+| 03-medium-feature | 0.80 | 0.80 | 0.59 | acceptance table present, but again declared SMALL across `src/` + `bin/` → PROC-13 (Stop gate size check) |
+| 05-security-sensitive | 0.75 | **1.00** | 2.73 (was 4.34) | auth deliverables evidenced; review-round cap cut cost 37% |
+| 06-parallel-implementation | 0.75 | **1.00** | 0.66 | — |
+| 10-ui-implementation | 0.75 | **1.00** | 0.48 (was 1.03) | a11y + states evidenced |
+| 11-ai-feature-eval | 0.75 | 0.75 | 3.07 | final message was a postscript from a late background security review, so the main report was not the last message → PROC-13 (foreground gates, full re-report) |
+
+Projected suite after the re-run: 13/15 cases pass, mean ≈ 0.97. This is a projection from separate invocations, not a single clean run. PROC-13 is verified by hook tests (255/255, mutation-checked) but has not yet been re-run in the benchmark.
+
 ## Cost note
 Run 2 cost 3.3× run 1. The PROC-7 gate ledger now forces real review rounds (run 1 skipped them), and case 05 alone is 47% of the cost. Correct reviews cost tokens, and the new review-round cap bounds the loop.

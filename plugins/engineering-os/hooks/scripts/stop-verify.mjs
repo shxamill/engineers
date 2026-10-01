@@ -5,6 +5,7 @@
 //  2. The class/flags in docs/engineering/status.md (Now) imply required reviewers (registry budgets +
 //     risk requirements). Each needs a PASS verdict in .eng/evidence/gates.jsonl newer than the latest change;
 //     a newer CHANGES_REQUIRED means the fix must be re-reviewed.
+//  3. The declared class must fit the diff (budget max_impl_files / max_areas), else reclassify upward.
 // Fails open on errors. Opt out per project with "stopGate": false in project-profile.json.
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -12,7 +13,8 @@ import { execFileSync } from 'node:child_process';
 import { readInput, block, projectDir, pluginRoot } from './lib.mjs';
 
 const NON_SOURCE = /(^|\/)(docs|\.eng|\.claude|\.github\/ISSUE_TEMPLATE)\/|\.(md|mdx|txt|rst|png|jpe?g|gif|svg|ico|lock)$|(^|\/)(LICENSE|CHANGELOG|\.gitignore)$/i;
-const GATE_SKILL = { 'code-reviewer': '/engineering-os:eng-review', 'scope-judge': '/engineering-os:eng-judge', 'security-engineer': '/engineering-os:eng-secreview', 'adversarial-qa': '/engineering-os:eng-test (adversarial QA)' };
+const TEST_FILE = /(^|\/)(tests?|__tests__|spec|e2e)\/|[._-](test|spec)\.[a-z0-9]+$|(^|\/)test_[^/]+\.py$/i;
+const GATE_SKILL ={ 'code-reviewer': '/engineering-os:eng-review', 'scope-judge': '/engineering-os:eng-judge', 'security-engineer': '/engineering-os:eng-secreview', 'adversarial-qa': '/engineering-os:eng-test (adversarial QA)' };
 
 try {
   const input = readInput();
@@ -42,9 +44,17 @@ try {
   const now = (status.split(/^## /m).find((s) => s.startsWith('Now')) || '');
   const cls = (now.match(/Class:\s*\**\s*(TRIVIAL|SMALL|MEDIUM|LARGE|CRITICAL)\b/) || [])[1];
   if (!cls) missing.push('classification: record `Class:` and `Flags:` in docs/engineering/status.md Now (/engineering-os:eng-intake); review gates are derived from it');
+  const { parseYaml } = await import(new URL('../../scripts/lib/yaml-lite.mjs', import.meta.url));
+  const reg = cls ? parseYaml(readFileSync(join(pluginRoot(), 'routing', 'capabilities.yaml'), 'utf8')) : null;
+  // Declared class vs actual diff size: self-classification drifts low (benchmark run 2, PROC-13).
+  const b = reg?.budgets?.[cls];
+  if (b?.max_impl_files) {
+    const impl = source.filter((f) => !TEST_FILE.test(f));
+    const areas = new Set(impl.map((f) => (f.includes('/') ? f.split('/')[0] : '.')));
+    if (impl.length > b.max_impl_files || areas.size > b.max_areas)
+      missing.push(`reclassify: ${impl.length} non-test source file(s) in ${areas.size} area(s) (${[...areas].join(', ')}) exceed ${cls} (≤${b.max_impl_files} files, ≤${b.max_areas} area); set a higher Class in status.md Now and run its gates`);
+  }
   if (cls && cls !== 'TRIVIAL') {
-    const { parseYaml } = await import(new URL('../../scripts/lib/yaml-lite.mjs', import.meta.url));
-    const reg = parseYaml(readFileSync(join(pluginRoot(), 'routing', 'capabilities.yaml'), 'utf8'));
     const flags = ((now.match(/Flags:\s*([^\n·]*)/) || [])[1] || '').split(/[,\s]+/).filter((f) => reg.risk_requirements?.[f]);
     const caps = new Set(reg.budgets?.[cls]?.reviewers || []);
     for (const f of flags) for (const id of reg.risk_requirements[f]) if (['appsec', 'supply-chain', 'privacy'].includes(id)) caps.add(id);

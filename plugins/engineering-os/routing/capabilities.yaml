@@ -6,6 +6,8 @@
 version: 1
 
 # Per-class budgets. The orchestrator (main session) is always the owner; "max_agents" counts spawned subagents.
+# max_impl_files / max_areas: ceiling on changed non-test source files and top-level areas (first path segment);
+# the Stop gate blocks a declared class whose diff exceeds them (reclassify upward).
 budgets:
   TRIVIAL:
     max_agents: 0
@@ -14,6 +16,8 @@ budgets:
     retries: 1
     verify: targeted
     reviewers: []
+    max_impl_files: 1
+    max_areas: 1
   SMALL:
     max_agents: 1
     concurrency: 1
@@ -21,6 +25,8 @@ budgets:
     retries: 2
     verify: standard
     reviewers: [code-review]
+    max_impl_files: 3
+    max_areas: 1
   MEDIUM:
     max_agents: 4
     concurrency: 2

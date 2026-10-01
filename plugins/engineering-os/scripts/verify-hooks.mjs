@@ -379,6 +379,7 @@ try {
   // Commits made during the session must not hide changes from the gate.
   const sess = { session_id: 'sess-1' };
   writeFileSync(join(repo, '.eng', 'evidence', 'verify-latest.json'), JSON.stringify({ verdict: 'PASS' }));
+  g('add', '-A'); g('commit', '-qm', 'pre-session work');
   const sc2 = run('session-context.mjs', sess, { CLAUDE_PROJECT_DIR: repo });
   expect('session: records session start HEAD', sc2.code === 0 && existsSync(join(repo, '.eng', 'state', 'session-sess-1.json')));
   await new Promise((r) => setTimeout(r, 20));
@@ -410,6 +411,22 @@ try {
   expect('stop: all required gates PASS → stop allowed', stop(sess).code === 0, stop(sess).stderr);
   setNow('- Class: TRIVIAL');
   expect('stop: TRIVIAL needs only verification', stop(sess).code === 0);
+  // Declared class vs diff size (PROC-13): non-test source files and top-level areas.
+  writeFileSync(join(repo, 'src', 'd.js'), 'export const d = 1;\n');
+  sv = stop(sess);
+  expect('stop: TRIVIAL with 2 source files must reclassify', sv.code === 2 && /reclassify: 2 non-test/.test(sv.stderr), sv.stderr);
+  mkdirSync(join(repo, 'test'), { recursive: true });
+  writeFileSync(join(repo, 'test', 'd.test.js'), '// test\n');
+  writeFileSync(join(repo, 'src', 'd.spec.js'), '// test\n');
+  expect('stop: test files do not count toward the class size', /reclassify: 2 non-test/.test(stop(sess).stderr), stop(sess).stderr);
+  setNow('- Class: SMALL · Flags: none');
+  expect('stop: SMALL within one area does not reclassify', !/reclassify/.test(stop(sess).stderr), stop(sess).stderr);
+  mkdirSync(join(repo, 'bin'), { recursive: true });
+  writeFileSync(join(repo, 'bin', 'cli.js'), '// cli\n');
+  sv = stop(sess);
+  expect('stop: SMALL spanning 2 areas must reclassify', sv.code === 2 && /reclassify: 3 non-test source file\(s\) in 2 area/.test(sv.stderr), sv.stderr);
+  setNow('- Class: MEDIUM · Flags: none');
+  expect('stop: MEDIUM has no size ceiling', !/reclassify/.test(stop(sess).stderr), stop(sess).stderr);
 
   writeFileSync(join(repo, 'docs', 'engineering', 'project-profile.json'), JSON.stringify({ stopGate: false }));
   expect('stop: stopGate=false opts out', stop().code === 0);
