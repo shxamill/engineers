@@ -1,6 +1,6 @@
 # Engineering OS v2 benchmark — run 1 (baseline, 2026-10-01, orchestrator=sonnet)
 
-_Claude Code ? · started ? · 15 runs · concurrency ?_
+_Claude Code 2.1.286 · started 2026-10-01T16:35:42.892Z · 15 runs · concurrency 3 · model sonnet_
 
 | Case | Score | Pass | Turns | Cost $ | Time s | Failed graders |
 |---|---|---|---|---|---|---|

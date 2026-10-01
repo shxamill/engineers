@@ -14,4 +14,4 @@ node plugins/engineering-os/scripts/verify-hooks.mjs
 node plugins/engineering-os/scripts/test-engines.mjs
 claude plugin validate plugins/engineering-os
 ```
-Behavior changes also need an eval case in `plugins/engineering-os/evals/` and a `PROC-n` row in `docs/engineering/decisions.md`. Verify Claude Code mechanics against current docs or the installed CLI; never invent configuration fields.
+Behavior changes also need an eval case in `plugins/engineering-os/evals/` and a `PROC-n` row in `docs/engineering/decisions.md`. Verify Claude Code mechanics against current docs or the installed CLI; never invent configuration fields. After pushing, confirm `org-ci` is green on Ubuntu **and** Windows (PROC-14). Changes to commands, counts, gates, or limitations update `README.md` and `plugins/engineering-os/README.md` in the same commit. Full guide: `CONTRIBUTING.md`.

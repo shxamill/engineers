@@ -1,94 +1,324 @@
-# Engineering OS (Claude Code plugin) — Operating Manual
+# Engineering OS plugin: operating manual
 
-An engineering organization operated by AI. You give a goal; the **CTO orchestrator** (your main Claude session) classifies it, routes it to the minimum capable team from a capability registry, and drives an adaptive lifecycle from discovery to measured outcome. Deterministic engines and hooks do the mechanical work. Progress needs evidence at every gate.
+This is the reference for installing, configuring, and operating the `engineering-os` Claude Code plugin. For **what Engineering OS is, why it exists, and how well it has been evaluated**, start with the [repository README](../../README.md).
 
-## Install (per project)
-```
-/plugin marketplace add shxamill/engineers
-/plugin install engineering-os@engineers
-/engineering-os:eng-init
-```
-Or commit this to the product repo's `.claude/settings.json` so the whole team gets it:
-```json
-{ "extraKnownMarketplaces": { "engineers": { "source": { "source": "github", "repo": "shxamill/engineers" } } },
-  "enabledPlugins": { "engineering-os@engineers": true } }
-```
-The product repo keeps only project state: `docs/engineering/` (status, plan, decisions, profile, …) and `.eng/evidence/` (gitignored). No OS internals are copied in.
+**Contents:** [Install, update, and remove](#install-update-and-remove) · [First run](#first-run-eng-init) · [Working with the orchestrator](#working-with-the-orchestrator) · [Command reference](#command-reference) · [Classes, budgets, and phases](#classes-budgets-and-phases) · [Risk flags](#risk-flags) · [Agents](#agents) · [Engines](#engines) · [Hooks](#hooks) · [Project state](#project-state) · [Configuration](#configuration) · [Troubleshooting](#troubleshooting) · [Benchmark](#running-the-benchmark) · [Changing the plugin](#changing-the-plugin)
 
-Requirements: Claude Code 2.1+ and Node.js 18+ on PATH (Windows, macOS, Linux).
+## Install, update, and remove
 
-## Use
-| Command | Phase | What happens |
+Requirements:
+- Claude Code (tested with 2.1.286 and 2.1.287);
+- Node.js 18 or newer on `PATH`;
+- Git.
+
+The recommended OS sandbox runs on macOS, Linux, and WSL2, but not native Windows.
+
+| Task | In a Claude Code session | From a shell |
 |---|---|---|
-| `/engineering-os:eng <goal>` | all | Full adaptive lifecycle, scaled to class and risk |
-| `/engineering-os:eng-init` | setup | Detect stack and checks → `project-profile.json`; recommend permissions and sandbox |
-| `/engineering-os:eng-intake` | F0–F1 | Scope × risk classification, routing, discovery brief |
-| `/engineering-os:eng-research` | F1 | Deduplicated, sourced research |
-| `/engineering-os:eng-spec` | F2–F3 | Requirements with verification methods, UX spec |
-| `/engineering-os:eng-arch` | F4–F5 | Architecture, ADRs, threat model |
-| `/engineering-os:eng-plan` | F6 | Task DAG validated by `eng-plan-check` |
-| `/engineering-os:eng-build` | F7–F8 | Dispatch the frontier, worktrees for parallel writers, integrate |
-| `/engineering-os:eng-judge` | F9 | Cheap intent/scope judge (fresh context) |
-| `/engineering-os:eng-review` | F9 | Independent code review (fresh context) |
-| `/engineering-os:eng-test` | F9/F11 | AC→test coverage, adversarial QA |
-| `/engineering-os:eng-secreview` | F10 | Independent security review |
-| `/engineering-os:eng-verify` | F11 | Run all project checks + tamper/secret/scope checks → compact verdict |
-| `/engineering-os:eng-debug` | any | Forensic root-cause loop with retry budget |
-| `/engineering-os:eng-release` | F12–F14 | Readiness, gated deploy, post-deploy verification, rollback |
-| `/engineering-os:eng-outcome` | F15 | Did the intended outcome happen? (separate from "deployed") |
-| `/engineering-os:eng-retro` | F16 | Blameless retro; generalizable lessons improve the OS |
-| `/engineering-os:eng-status` | any | Phase, DAG frontier, last verification, next action |
+| Add the marketplace | `/plugin marketplace add shxamill/engineers` | `claude plugin marketplace add shxamill/engineers` |
+| Install | `/plugin install engineering-os@engineers` (opens the details panel; pick a scope) | `claude plugin install engineering-os@engineers [--scope user\|project\|local]` |
+| Check it loaded | Type `/engineering-os:` and look for the skills | `claude plugin list` · `claude plugin details engineering-os` |
+| Update | `/plugin` → **Installed** → **Update now** | `claude plugin marketplace update engineers` then `claude plugin update engineering-os@engineers` |
+| Disable or enable | `/plugin` → **Installed** | `claude plugin disable engineering-os@engineers` · `claude plugin enable engineering-os@engineers` |
+| Uninstall | `/plugin uninstall` | `claude plugin uninstall engineering-os@engineers` |
 
-## Organization model
-Capabilities, not permanent staff. 31 capabilities in 8 groups (product, design, software, platform, quality, security, knowledge, plus architecture) live in `routing/capabilities.yaml`. They map onto **16 agents** (fewer, deeper contexts), each tagged with a Team Topologies role:
-- **Stream-aligned (value delivery):** product-management, ux/ui, frontend, backend, database, mobile, integrations.
-- **Enabling (specialist support):** architecture, research, QA, code-review, scope-judge, adversarial QA, debugging, AppSec, threat modeling, privacy, supply chain, SRE, performance, documentation.
-- **Platform:** devops, platform engineering, release, design systems, test automation, DX.
-- **Complicated subsystem:** AI/ML.
+**Install scopes.**
+- **user:** every project on this machine.
+- **project:** everyone working in the repository, through the committed `.claude/settings.json`.
+- **local:** just you, in this repository.
 
-The orchestrator is the value-delivery cell's owner and integrator. Specialists join only when routing (triggers, risk flags, class budget) says they add confidence.
+A project-scope install writes exactly this to `.claude/settings.json`:
 
-## Staffing and budgets (`eng-route.mjs`)
-| Class | Spawned agents | Concurrency | Research | Retries/approach | Verify | Default reviewers |
-|---|---|---|---|---|---|---|
-| TRIVIAL | 0 | 0 | none | 1 | targeted | self-check |
-| SMALL | ≤1 | 1 | none | 2 | standard | code-review |
-| MEDIUM | ≤4 | 2 | quick | 2 | standard | scope-judge, code-review |
-| LARGE | ≤8 | 4 | standard | 2 | full | + adversarial QA |
-| CRITICAL | ≤10 | 3 | standard | 2 | full | + AppSec |
-Risk flags add mandatory capabilities (e.g. `auth` → threat modeling + AppSec). Class = scope; critical risk → CRITICAL; high risk is never TRIVIAL. Risk adds gates, not headcount. Agent teams are off by default (3–5 teammates when justified).
-
-## Token and context strategy
-- **Always loaded:** a ~40-line constitution (injected by hook, since plugins can't ship CLAUDE.md) + skill/agent descriptions. Run `claude plugin details engineering-os` for the current projected cost.
-- **On demand:** phase skills; `standards-*` skills activate only when matching files are touched, or are preloaded into the relevant agents.
-- **Deterministic engines instead of model reasoning:** routing, stack detection, verification, DAG validation, tamper and secret scans. Their compact output replaces exploration and long logs.
-- **Durable state in files:** status Now (injected each session), plan states, decisions, project profile, evidence paths.
-- **Bounded:** every agent has `maxTurns`; retry budgets per class; models tiered by reasoning need.
-
-## Verification model
-1. Deterministic: `eng-verify` runs the project's own build/lint/format/typecheck/tests/e2e/audits from the profile, plus TESTS-TAMPER (deleted tests, new skip/only, fewer assertions), SECRETS (diff scan), and SCOPE. NOT_RUN is never reported as PASS.
-2. Intent: `eng-judge` (scope-judge agent) checks request ⇄ ACs ⇄ diff ⇄ tests.
-3. Engineering: `eng-review` (opus, fresh context); approves when code health improves.
-4. Security: `eng-secreview` on risk flags, always for CRITICAL.
-5. Stop gate: a session can't end with source changes newer than its last verification evidence (blocks once).
-6. Outcome: `eng-outcome` measures the success signal after release.
-
-## Security model
-Defense in depth:
-1. **Native boundary first:** project permissions + OS sandbox recommended by `eng-init`. Docs list macOS, Linux, and WSL2; native Windows support is version-dependent, so check with `/sandbox`.
-2. **Guard hooks:** destructive, irreversible, and secret-exposing commands route to **you** via a native permission prompt. Catastrophic ones are denied. A quote- and heredoc-aware parser with 240 regression cases.
-3. **Secrets guard:** reading or writing secret files and credential literals → ask.
-4. **Verifier scans:** tamper and secret checks on every verification.
-5. **Least-privilege agents:** explicit tool lists; reviewers and judges are read-only; workers cannot spawn agents.
-Hooks are a safety net, not a sandbox.
-
-## Benchmark (the OS is evaluated like software)
-`evals/` holds native `claude plugin eval` cases: trivial change, simple bug, medium feature, full-stack feature, security-sensitive feature, parallel work, merge conflict, failed-test recovery, debugging, UI, AI feature with eval, deployment verification, destructive request, secret access, scope creep. Run from the plugin directory:
-```
-claude plugin eval . --scaffold --trust-plugin --allow-tools Bash Write Edit --ablation none -j 3 --max-cost-usd 15
+```json
+{
+  "extraKnownMarketplaces": {
+    "engineers": { "source": { "source": "github", "repo": "shxamill/engineers" } }
+  },
+  "enabledPlugins": { "engineering-os@engineers": true }
+}
 ```
 
-## Extending
-Change the OS in its repo, never inside product repos.
-- Validate: `node scripts/validate-org.mjs && node scripts/verify-hooks.mjs && node scripts/test-engines.mjs && claude plugin validate .`
-- Every generalizable lesson gets a PROC entry and, where possible, an eval case that would have caught it.
+Committing that file enables the plugin for collaborators, but each of them still runs `claude plugin install engineering-os@engineers --scope project` once.
+
+**Notes.**
+- **Updates are manual.** Third-party marketplaces don't auto-update by default, so update explicitly. A running session keeps the version it loaded; `/reload-plugins` or a new session picks up the update.
+- **Pinning.** To pin a branch or tag, add `#ref` to the source: `/plugin marketplace add shxamill/engineers#<branch-or-tag>`. No release tags exist yet.
+- **Cloud sessions.** Claude Code on the web (claude.ai/code) doesn't load locally installed or repository-enabled plugins.
+- **Working on the plugin itself.** Load it from a clone without installing: `claude --plugin-dir plugins/engineering-os`.
+
+## First run: `eng-init`
+
+Run `/engineering-os:eng-init` once per project. It takes five steps:
+1. **Detects** the stack and its check commands, offline and deterministically, and writes `docs/engineering/project-profile.json`. Example output:
+   ```text
+   STACK: javascript · npm · no framework detected
+   CHECKS: lint=`npm run lint` · test=`npm run test`
+   CI: none · DEPLOY: none · DATA: none · AI: none
+   NOTES: no typecheck command detected; no build command detected; no CI configuration detected
+   ```
+   Detection covers Node.js (npm, pnpm, yarn, bun, including workspaces), Python (uv, poetry, pip), Go, Rust, Java, and .NET, as well as CI, deploy, database, and AI usage.
+2. **Creates state:** `docs/engineering/status.md` and `decisions.md`. It also adds `.eng/` to `.gitignore`.
+3. **Records a baseline** with `/engineering-os:eng-verify targeted`. A red baseline is recorded as a pre-existing condition, so later work isn't blamed for it.
+4. **Offers recommended settings.** Plugins can't ship permissions, sandbox, or worktree settings, so `eng-init` shows [`templates/project-settings.json`](templates/project-settings.json) and asks once: apply all, all except the sandbox, or skip. The block contains:
+   - `permissions.deny` rules for `.env` files, private keys, AWS credentials, and `~/.ssh`;
+   - `sandbox.enabled` with a package-registry and GitHub domain allowlist;
+   - `worktree.baseRef: "head"`, so parallel subagent worktrees start from your current branch.
+5. **Reports** the stack, the checks, any gaps (no tests, no typecheck, no CI), the baseline verdict, and which settings were applied.
+
+To correct detection, add entries under `overrides` in `project-profile.json`. Overrides survive re-detection:
+
+```json
+{
+  "overrides": {
+    "checks": [{ "id": "e2e", "kind": "e2e", "cmd": "npx playwright test", "cwd": "." }],
+    "disable": ["lint"]
+  }
+}
+```
+
+Check kinds: `build`, `lint`, `format`, `typecheck`, `test`, `integration`, `e2e`, `security`, `secrets`.
+
+## Working with the orchestrator
+
+- **Start:** `/engineering-os:eng <goal>`.
+- **Session start:** the `SessionStart` hook injects the constitution plus a snapshot: branch, uncommitted files, worktrees, project profile, and the **Now** section of `status.md`. Work therefore resumes from files, not from chat history. `/engineering-os:eng` continues from `status.md` and the plan's ready frontier rather than restarting.
+- **What it asks you.** Only the human-gate decisions:
+  - product direction or materially ambiguous behavior;
+  - irreversible architecture;
+  - production data or infrastructure;
+  - paid commitments, secrets, legal or compliance matters;
+  - high-risk security actions;
+  - external communication.
+
+  It asks once, with up to three questions, each with options and a recommendation. Everything else it decides and records as an assumption in `status.md`.
+- **Git:** on the default branch it first creates `eng/<slug>`. It makes focused commits (`<type>(<scope>): <summary> [T-n]`), stages only the files the work changed, and never pushes or opens a pull request unless asked.
+- **`status.md` Now** must carry the class and flags. The completion gate reads them:
+  ```text
+  ## Now
+  - Objective: Add admin login
+  - Class: SMALL · Risk: high · Flags: auth, secrets, external-input
+  - Phase: F9 review
+  ```
+- **Final report:**
+  - outcome and what changed;
+  - an acceptance table (`Criterion | met? | evidence`, including one row per risk-flag deliverable);
+  - a gate table (`Phase | required? | evidence`);
+  - the `eng-verify` summary lines;
+  - open risks and assumptions;
+  - the next step.
+
+## Command reference
+
+All commands are `/engineering-os:<name>`. Paths are relative to the project root.
+
+| Command | Arguments | Phase | Produces |
+|---|---|---|---|
+| `eng` | `<goal or request>` | F0–F16 | Drives everything below as the class requires; final report |
+| `eng-init` | none | setup | `docs/engineering/project-profile.json`, `status.md`, `decisions.md`; optional `.claude/settings.json` merge |
+| `eng-intake` | `<request>` | F0–F1 | Class, flags, and staffing in `status.md`; `product.md` brief for new or unclear products |
+| `eng-research` | `<questions or topic> [quick\|standard\|deep]` | F1 | Sourced, deduplicated entries in `research.md` |
+| `eng-spec` | `[feature or scope]` | F2–F3 | `requirements.md` (acceptance criteria and verification methods), `ux.md` |
+| `eng-arch` | `[focus]` | F4–F5 | `architecture.md`, `adr/NNNN-slug.md`, threat model in `security.md` |
+| `eng-plan` | `[scope]` | F6 | `implementation-plan.md` task graph, validated by `eng-plan-check` |
+| `eng-build` | `[T-ids \| next-wave]` | F7–F8 | Code and tests, one commit per task, plan states updated |
+| `eng-judge` | `[T-id \| base-ref]` | F9 | Scope judge verdict in a fresh context: PASS or CHANGES_REQUIRED |
+| `eng-review` | `[base-ref \| commit-range \| T-id]` | F9 | Code review verdict in a fresh context |
+| `eng-test` | `[scope]` | F9 / F11 | `test-plan.md`, missing tests, adversarial QA for LARGE or flagged work |
+| `eng-secreview` | `[base-ref \| commit-range \| T-id]` | F10 | Security review verdict in a fresh context; findings in `security.md` |
+| `eng-verify` | `[targeted\|standard\|full] [--only kinds] [--base ref] [--network]` | F11 | Compact verdict; logs in `.eng/evidence/verify-<ts>/` and `verify-latest.json` |
+| `eng-debug` | `<symptom, failing command, or error>` | any | Root cause, minimal fix, regression test; postmortem for incidents |
+| `eng-release` | `[environment] [version]` | F12–F14 | `release-plan.md`, gated deploy, evidence in `.eng/evidence/release-<version>/` |
+| `eng-outcome` | `[feature or FR id]` | F15 | A row in `outcomes.md`: ACHIEVED, PARTIAL, NOT_YET, MISSED, or UNMEASURABLE |
+| `eng-status` | none | any | A summary of 15 lines or fewer; reconciles `status.md` |
+| `eng-retro` | `[initiative or incident]` | F16 | `retrospectives/NNNN-slug.md`, `PROC-n` rows in `decisions.md` |
+
+(All produced documents live under `docs/engineering/` unless the path says otherwise.)
+
+`eng-judge`, `eng-review`, and `eng-secreview` run in a forked subagent (`context: fork`, `background: false`), so the reviewer never sees the author's conversation. The six `standards-*` skills (backend, data, frontend, infra, security-sensitive, testing) are not commands. They activate when matching files are touched and are preloaded into the agents that need them.
+
+## Classes, budgets, and phases
+
+Class budgets come from [`routing/capabilities.yaml`](routing/capabilities.yaml):
+
+| Class | Max subagents | Concurrency | Research | Retries per approach | Verify level | Required reviewers | Diff ceiling |
+|---|---|---|---|---|---|---|---|
+| TRIVIAL | 0 | 0 | none | 1 | targeted | none (self-check of the diff) | 1 non-test source file, 1 area |
+| SMALL | 1 | 1 | none | 2 | standard | code-review | 3 non-test source files, 1 area |
+| MEDIUM | 4 | 2 | quick | 2 | standard | scope-judge, code-review | — |
+| LARGE | 8 | 4 | standard | 2 | full | scope-judge, code-review, adversarial-qa | — |
+| CRITICAL | 10 | 3 | standard | 2 | full | scope-judge, code-review, appsec, adversarial-qa | — |
+
+How the class is chosen:
+- Scope sets the class. Critical risk means CRITICAL, and high risk is never TRIVIAL.
+- A new user-facing interface (CLI, endpoint, page), or more than 3 expected files, makes the work at least MEDIUM.
+- Between two classes, choose the higher.
+- The completion gate rejects a declared class whose diff exceeds the ceiling.
+
+Which phases run for each class:
+
+| Phase | TRIVIAL | SMALL | MEDIUM | LARGE | CRITICAL |
+|---|---|---|---|---|---|
+| F0 Intake | inline | inline | ✓ | ✓ | ✓ |
+| F1 Discovery and research | – | if unknowns | if unknowns | ✓ | ✓ |
+| F2 Requirements | – | criteria in `status.md` | ✓ | ✓ | ✓ |
+| F3 UX design | – | – | if UI | if UI | if UI |
+| F4 Architecture | – | decision line | light | ✓ + ADRs | ✓ + ADRs |
+| F5 Threat model | – | if flagged | if flagged | ✓ | ✓ |
+| F6 Plan (task graph) | – | – | ✓ | ✓ | ✓ |
+| F7–F8 Build and integrate | direct | direct or 1 agent | eng-build | eng-build (worktrees) | eng-build |
+| F9 Independent review | self-check | code review | scope judge + code review | + adversarial QA | + adversarial QA |
+| F10 Security review | – | if flagged | if flagged | if flagged | ✓ |
+| F11 Verification | targeted | standard | standard | full | full |
+| F12–F14 Release | only when deploying | | | | staged rollout |
+| F15 Outcome | – | – | if a success signal exists | ✓ | ✓ |
+| F16 Retrospective | – | – | if surprises | ✓ | ✓ |
+
+Order inside F9–F11: deterministic verification first, then the scope judge, then the code reviewer, then the security reviewer. Fix and re-verify between them.
+
+## Risk flags
+
+| Flag | Required capabilities | Evidence the final report must show |
+|---|---|---|
+| `auth` | threat-modeling, appsec | Threat model; constant-time secret comparison; unguessable tokens; tests rejecting unauthenticated and wrong-credential requests |
+| `payments` | threat-modeling, appsec, privacy | Threat model; idempotency; amounts in integer minor units; tests for failure and retry paths |
+| `pii` | privacy, appsec | Data inventory; minimization; access-control tests; no PII in logs |
+| `secrets` | appsec | Secrets only from the environment or a secret store; none in code, logs, fixtures, or commits |
+| `prod-data` | database, release | Migration plan with rollback; verified backup; recorded human approval |
+| `infra` | platform-engineering, appsec | Plan or diff of the change; least privilege; rollback path |
+| `external-input` | appsec | Validation at the boundary; size limits; tests for malformed input |
+| `new-dependency` | supply-chain | Justification; license; maintenance and advisory check; pinned version |
+| `ai` | ai-ml | Labeled eval set (typical, edge, adversarial including prompt injection) with a measured score; output validated against an allowlist; unit tests mock the model |
+| `ui` | ux | Loading, empty, error, and success states; keyboard and screen-reader access; how it was checked |
+| `irreversible` | architecture | ADR with alternatives; recorded human approval |
+
+AppSec, privacy, and supply-chain become required **reviewers**, so the completion gate waits for their PASS. The other capabilities are staffed when the class budget allows, and otherwise covered by the orchestrator.
+
+## Agents
+
+All agents are namespaced `engineering-os:<name>` and get the constitution injected at start. None has the `Agent` tool, so only the orchestrator staffs.
+
+| Agent | Model | Max turns | Edits files | Capabilities |
+|---|---|---|---|---|
+| `product-manager` | sonnet | 30 | docs | product-management, product-analytics |
+| `researcher` | sonnet | 30 | docs | product-research |
+| `ux-designer` | sonnet | 30 | docs | ux, ui-visual, design-systems |
+| `architect` | opus | 40 | docs | architecture |
+| `frontend-engineer` | sonnet | 60 | yes | frontend, mobile |
+| `backend-engineer` | sonnet | 60 | yes | backend, database, integrations |
+| `ai-engineer` | sonnet | 60 | yes | ai-ml |
+| `platform-engineer` | sonnet | 50 | yes | devops, platform-engineering, release |
+| `reliability-engineer` | sonnet | 50 | yes | sre, performance |
+| `test-engineer` | sonnet | 50 | yes | qa, test-automation |
+| `debugger` | opus | 60 | yes | debugging |
+| `code-reviewer` | opus | 40 | **no** (Read, Grep, Glob, Bash, PowerShell) | code-review |
+| `scope-judge` | sonnet | 15 | **no** | scope-judge |
+| `adversarial-qa` | sonnet | 40 | **no** | adversarial-qa |
+| `security-engineer` | opus | 50 | docs (threat models, reviews) | appsec, threat-modeling, security-testing, privacy, supply-chain |
+| `tech-writer` | haiku | 25 | docs | documentation, developer-experience |
+
+"Docs" means the agent has Edit and Write tools and is instructed to write documents, not features. Reviewers that keep Bash can run checks, so "no" is enforced through tool lists and instructions, not by a sandbox. The validator fails if an agent's tools, model, or turn limit drifts from its registry entry.
+
+## Engines
+
+Deterministic Node.js scripts with no dependencies. Skills call them as `node "${CLAUDE_PLUGIN_ROOT}/scripts/<name>.mjs"`; you can run them from a clone the same way.
+
+| Script | Usage | Output and exit code |
+|---|---|---|
+| `eng-route.mjs` | `--request "<summary>" --scope trivial\|small\|medium\|large --risk low\|medium\|high\|critical [--flags f1,f2] [--json]` | CLASS, BUDGET, STAFF, REVIEWERS, MANDATORY, and one DELIVERABLE line per flag; exit 2 on bad input |
+| `eng-detect.mjs` | `[projectDir] [--write]` | STACK, CHECKS, CI, DEPLOY, DATA, AI, NOTES; `--write` saves `project-profile.json` (keeping `overrides` and `stopGate: false`) |
+| `eng-verify.mjs` | `[projectDir] [targeted\|standard\|full] [--only k1,k2] [--skip k] [--base ref] [--network] [--timeout ms] [--json]` | Compact verdict lines plus an EVIDENCE path; exit 0 on PASS or NO_CHECKS, 1 on FAIL, 2 on usage error |
+| `eng-plan-check.mjs` | `[planPath] [--json]` | Errors (cycles, unknown dependencies, same-wave file overlap, bad states, unknown capabilities) and `READY NOW`; exit 1 on errors |
+
+`eng-verify` details:
+- Failing checks are re-run at the base commit in a temporary worktree, and failures with no new output lines are labelled `PRE_EXISTING`.
+- `--network` enables registry audits.
+- `NOT_RUN` is never counted as PASS.
+
+## Hooks
+
+Defined in [`hooks/hooks.json`](hooks/hooks.json). All run as `node <script>`, without a shell, so they work the same on Windows.
+
+| Event | Script | What it does | Can it block? |
+|---|---|---|---|
+| `SessionStart` | `session-context.mjs` | Injects the constitution and the state snapshot; records the session's starting `HEAD` | No |
+| `SubagentStart` (`engineering-os:*`) | `subagent-context.mjs` | Injects the constitution into every org agent | No |
+| `PreToolUse` (Bash, PowerShell) | `guard-bash.mjs` | Lexes and analyzes the command; **deny** for catastrophic commands, **ask** for destructive, irreversible, or secret-exposing ones, and for anything it can't parse | Yes |
+| `PreToolUse` (Read, Edit, Write, MultiEdit, NotebookEdit, Grep) | `guard-secrets.mjs` | **Asks** before touching secret paths or writing credential literals | Yes |
+| `PostToolUse` (Edit, Write, MultiEdit) | `format-edited.mjs` | Runs the project's own formatter on the edited file if one is configured | No |
+| `SubagentStop` | `check-handoff.mjs` | Rejects an org agent's final message without a handoff, or a PASS without EVIDENCE; records accepted verdicts in `.eng/evidence/gates.jsonl` | Yes |
+| `Stop` | `stop-verify.mjs` | The completion gate (below) | Yes, once per stop attempt |
+
+**Completion gate.** It applies when source files changed this session, whether uncommitted or committed since the session started. It requires all of the following:
+1. `.eng/evidence/verify-latest.json` is newer than the latest change.
+2. `Class:` is recorded in `status.md` Now.
+3. The diff fits the class's diff ceiling.
+4. Every reviewer required by the class and flags has a PASS in the gate ledger newer than the latest change, and the latest verdict is PASS, not CHANGES_REQUIRED.
+
+Documentation-only changes don't trigger it: `docs/`, `.eng/`, `.claude/`, Markdown, images, and lockfiles are ignored. The gate fails open on internal errors.
+
+## Project state
+
+Everything lives in the product repository. Nothing from the OS is copied in.
+
+| Path | Written by | Purpose |
+|---|---|---|
+| `docs/engineering/status.md` | orchestrator, `eng-status` | Live state: Now (class, flags, phase), phases, active work, checks, risks, assumptions |
+| `docs/engineering/project-profile.json` | `eng-detect` (`eng-init`) | Detected stack and checks, `overrides`, `stopGate` |
+| `docs/engineering/product.md` | `eng-intake`, `product-manager` | PR/FAQ-style product brief |
+| `docs/engineering/requirements.md` | `eng-spec` | Acceptance criteria with verification methods; success metrics |
+| `docs/engineering/ux.md` | `eng-spec`, `ux-designer` | Flows, states, accessibility |
+| `docs/engineering/architecture.md`, `adr/` | `eng-arch`, `architect` | Actual design and decisions |
+| `docs/engineering/security.md` | `eng-arch`, `eng-secreview` | Threat model and security findings |
+| `docs/engineering/implementation-plan.md` | `eng-plan`, `eng-build` | Task graph: the runtime task database |
+| `docs/engineering/test-plan.md` | `eng-test` | Acceptance-criteria-to-test mapping, layers |
+| `docs/engineering/release-plan.md` | `eng-release` | Readiness evidence, environments, rollback |
+| `docs/engineering/outcomes.md` | `eng-outcome` | Outcome verdicts with evidence paths |
+| `docs/engineering/research.md`, `decisions.md`, `retrospectives/` | several | Durable knowledge |
+| `.eng/evidence/` (gitignored) | engines, hooks | Logs, `verify-latest.json`, `gates.jsonl`, per-session state |
+
+Templates for these files are in [`templates/`](templates/).
+
+## Configuration
+
+| Setting | Where | Effect |
+|---|---|---|
+| `overrides.checks`, `overrides.disable` | `docs/engineering/project-profile.json` | Add or disable verification checks; survive re-detection |
+| `"stopGate": false` | `docs/engineering/project-profile.json` | Turns the completion gate off for this project (not recommended) |
+| `permissions.deny`, `sandbox`, `worktree.baseRef` | `.claude/settings.json` | Claude Code's own controls; the recommended block is in [`templates/project-settings.json`](templates/project-settings.json) |
+| `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` | environment or settings `env` | Enables Claude Code agent teams. Off by default; the OS uses them only for LARGE/CRITICAL work with three or more independent streams. While enabled, a subagent Claude names launches as a teammate, and teammates don't apply an agent's preloaded `skills` |
+
+## Troubleshooting
+
+| Symptom | Cause | What to do |
+|---|---|---|
+| `Completion gate: … verification: run /engineering-os:eng-verify` | Source changed after the last verification | Run `/engineering-os:eng-verify`. A FAIL verdict still counts as evidence, but must be reported as FAIL |
+| `… classification: record Class: and Flags: …` | `status.md` Now has no class | Record the class and flags (`/engineering-os:eng-intake` does this) |
+| `… reclassify: N non-test source file(s) in M area(s) …` | The diff is bigger than the declared class allows | Raise the class in `status.md` and run that class's reviews |
+| `… <agent> review (required for …)` or `… returned CHANGES_REQUIRED` | A required reviewer hasn't passed the current code | Run the named review skill; fix findings, then re-review |
+| `guard-bash: … Needs explicit human approval` | A gated command | Approve it in the permission prompt if you intended it, or ask for a safer alternative. Agents are told never to work around it |
+| `Handoff missing` / `STATUS: PASS requires EVIDENCE` | An org agent ended without the handoff format | The agent is asked to re-send; no action needed unless it repeats |
+| Skills don't appear after install | Plugin not loaded yet | Run `/reload-plugins` or start a new session; check `claude plugin list` |
+| Plugin missing in claude.ai/code | Cloud sessions don't load local or repository plugins | Use a local session (terminal, desktop app, IDE) |
+| `/sandbox` shows missing dependencies | Linux or WSL2 without `bubblewrap` and `socat` | Install them (for example `sudo apt-get install bubblewrap socat`); native Windows needs WSL2 |
+
+## Running the benchmark
+
+From this directory, with Claude Code authenticated. It costs API usage; set a cap.
+
+```bash
+claude plugin eval . --scaffold --trust-plugin --allow-tools Bash Write Edit --ablation none --no-publish --max-cost-usd 15 --json results.json
+node scripts/bench-summary.mjs results.json --title "Engineering OS benchmark"
+```
+
+- `--scaffold` runs each case's `scaffold.sh` as you, so use it only on cases you trust.
+- `--no-publish` keeps the HTML report local; by default the runner publishes it to claude.ai when your account supports that.
+- The cases set `runs: 1` to keep cost down. Add `--runs 3` to measure run-to-run variance, which the eval docs recommend before trusting a change.
+- Drop `--ablation none` to also run a no-plugin baseline arm for comparison. This costs roughly twice as much.
+- `--case <glob>` accepts **one** glob. Run separate invocations for several cases.
+- `--keep-temp` keeps each run's workspace for inspection.
+- Shell tools run under Claude Code's OS sandbox; on Linux install `bubblewrap` and `socat`.
+- Published results and their analysis: [`docs/engineering/benchmarks/`](../../docs/engineering/benchmarks/).
+
+## Changing the plugin
+
+Change the OS in this repository, never inside product repositories. Validation commands, test and eval expectations, hook rules, and the decision process are in [CONTRIBUTING.md](../../CONTRIBUTING.md).
