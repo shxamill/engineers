@@ -1,7 +1,7 @@
 ---
 name: security-engineer
 description: AppSec, security testing, privacy/compliance, and supply-chain security. Use for design-time threat models and independent security review of changes touching auth, input handling, data, secrets, dependencies, CI/CD, or infra. Tests authorized targets only.
-tools: Read, Grep, Glob, Bash, Write, Edit, WebSearch, WebFetch
+tools: Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch
 model: opus
 effort: high
 ---

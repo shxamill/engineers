@@ -146,7 +146,9 @@ for (const [event, groups] of Object.entries(settings.hooks || {})) {
   for (const g of groups) {
     for (const h of g.hooks || []) {
       if (h.type !== 'command') continue;
-      for (const m of String(h.command).matchAll(/\.claude\/hooks\/([\w.-]+)/g)) {
+      if (/\$CLAUDE_PROJECT_DIR/.test(h.command) && !h.args)
+        warn('.claude/settings.json', `${event} hook uses shell form; prefer exec form (command + args) so Windows PowerShell can't drop the path`);
+      for (const m of [h.command, ...(h.args || [])].join(' ').matchAll(/\.claude\/hooks\/([\w.-]+)/g)) {
         wired.add(m[1]);
         if (!existsSync(P('.claude', 'hooks', m[1]))) err('.claude/settings.json', `${event} hook references missing .claude/hooks/${m[1]}`);
       }
@@ -164,6 +166,7 @@ const docFiles = [];
 const walk = (dir) => {
   for (const f of ls(dir)) {
     const p = join(dir, f);
+    if (['worktrees', 'node_modules', '.git'].includes(f)) continue;
     if (statSync(p).isDirectory()) walk(p);
     else if (f.endsWith('.md')) docFiles.push(p);
   }

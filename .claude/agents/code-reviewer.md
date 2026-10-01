@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: Independent code reviewer with a fresh context. Use after implementation to review the actual diff against requirements, architecture, tests, security, and maintainability. Read-only; returns PASS or CHANGES_REQUIRED with evidence.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, PowerShell
 model: opus
 effort: high
 ---

@@ -69,12 +69,12 @@ Large evidence (logs, scans, profiles) goes to `.eng/evidence/` (gitignored); ar
 | Hook | Event | Does |
 |---|---|---|
 | `session-context.mjs` | SessionStart (also after compaction) | Injects branch, uncommitted count, and status.md → Now so work resumes from state, not chat |
-| `guard-bash.mjs` | PreToolUse Bash/PowerShell | Blocks catastrophic commands outright; gates destructive or irreversible ones (force push, `reset --hard`, DROP, terraform destroy, prod deploys, publish, `curl \| sh`, reading secrets) behind human approval |
-| `guard-secrets.mjs` | PreToolUse Read/Edit/Write | Blocks reading or writing secret files and writing credential-shaped strings |
+| `guard-bash.mjs` | PreToolUse Bash/PowerShell | Denies catastrophic commands outright; asks you before destructive or irreversible ones (force push, `reset --hard`, DROP, terraform destroy, prod deploys, publish, `curl \| sh`, reading secrets). Parses quotes, heredocs, chains, pipes, `$(…)`, `bash -c`, `pwsh -Command`, and `xargs` |
+| `guard-secrets.mjs` | PreToolUse Read/Edit/Write | Asks you before reading or writing secret files or writing credential-shaped strings |
 | `format-edited.mjs` | PostToolUse Edit/Write | Runs the project's own formatter (prettier/biome/ruff/black/gofmt/rustfmt) if configured |
 | `check-handoff.mjs` | SubagentStop | Org agents must return the Handoff; `PASS` without `EVIDENCE` is rejected |
 
-**Human approval:** when a gated command is genuinely approved by you in the conversation, the agent re-runs it with the marker `ENG_HUMAN_APPROVED=1`, which stays visible in the transcript. Catastrophic commands (`rm -rf /`, disk formatting) have no override.
+**Human approval:** gated actions use Claude Code's native permission prompt (`permissionDecision: "ask"`), so *you* approve or decline each one, even from subagents and even in bypass-permissions mode. Headless runs (`claude -p`) refuse them. Catastrophic commands (`rm -rf /`, wiping a home folder, disk formatting) are always denied. Hooks run in exec form (`node` + `${CLAUDE_PROJECT_DIR}` args, no shell), so they behave the same in bash, PowerShell, and cmd.
 
 ## Extending the org (self-improvement)
 - Repeated failure → `/eng-retro` → fix the mechanism (skill checklist, path rule, hook, staffing rule), log `PROC-n` in `decisions.md`.

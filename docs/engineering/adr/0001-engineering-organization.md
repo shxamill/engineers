@@ -32,8 +32,8 @@ The goal is an autonomous engineering organization in Claude Code that takes a h
 
 ## Trade-offs
 - Consolidated agents carry broader prompts than single-role agents; mitigated by focused delegation contracts and path rules.
-- The bash guard uses heuristics: it can false-positive on commands that merely mention dangerous text (e.g. inline test fixtures), and it cannot catch every obfuscated command. It is a safety net, not a sandbox.
-- The approval marker relies on agent honesty; it is visible in the transcript for audit.
+- The bash guard uses heuristics. It parses quotes, heredocs, chains, subshells, and interpreter payloads, and skips read-only commands, but it cannot catch every obfuscated command (variables, aliases, scripts written then executed). It is a safety net, not a sandbox.
+- Gated actions use the native `ask` decision (amended after the G7 review): the human approves in a permission prompt, which agents cannot self-grant. This replaced an in-command approval marker that a subagent could add on its own.
 
 ## Consequences
 - Adding a role = add an agent file + one README/`/eng` table row; validated by `scripts/validate-org.mjs`.

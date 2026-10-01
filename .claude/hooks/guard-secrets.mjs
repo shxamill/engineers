@@ -1,25 +1,30 @@
 #!/usr/bin/env node
 // PreToolUse(Read|Edit|Write|MultiEdit|NotebookEdit): keep secrets out of the transcript and the repo.
-import { readInput, block, isSecretPath, findSecret } from './lib.mjs';
+// Secrets are a human decision gate, so matches go to the human ("ask"); headless sessions refuse.
+import { readInput, decide, isSecretPath, findSecret } from './lib.mjs';
 
-const input = readInput();
-const ti = input?.tool_input ?? {};
-const path = ti.file_path || ti.notebook_path || ti.path || '';
-const tag = 'BLOCKED by .claude/hooks/guard-secrets.mjs';
+try {
+  const ti = readInput()?.tool_input ?? {};
+  const path = ti.file_path || ti.notebook_path || ti.path || '';
 
-if (isSecretPath(path))
-  block(
-    `${tag}: "${path}" is a secrets file. Agents never read or write real credentials (CLAUDE.md → Human decision gates). ` +
-      'Use or create a placeholder file such as .env.example and ask the user to set real values.',
-  );
+  if (isSecretPath(path))
+    decide(
+      'ask',
+      `guard-secrets: "${path}" is a secrets file; agents don't read or write real credentials without explicit human approval. ` +
+        'Prefer a placeholder file such as .env.example and let the user set real values.',
+    );
 
-const written = [ti.content, ti.new_string, ti.new_source, ...(Array.isArray(ti.edits) ? ti.edits.map((e) => e?.new_string) : [])]
-  .filter((s) => typeof s === 'string')
-  .join('\n');
-const found = findSecret(written);
-if (found)
-  block(
-    `${tag}: the content being written to "${path}" contains what looks like a real ${found}. ` +
-      'Read credentials from environment variables instead. For test fixtures, build an obviously fake value at runtime.',
-  );
+  const written = [ti.content, ti.new_string, ti.new_source, ...(Array.isArray(ti.edits) ? ti.edits.map((e) => e?.new_string) : [])]
+    .filter((s) => typeof s === 'string')
+    .join('\n');
+  const found = findSecret(written);
+  if (found)
+    decide(
+      'ask',
+      `guard-secrets: the content for "${path}" contains what looks like a real ${found}. ` +
+        'Read credentials from environment variables instead; build obviously fake fixture values at runtime.',
+    );
+} catch (e) {
+  decide('ask', `guard-secrets could not analyze this call (${e?.message || e}); human review required`);
+}
 process.exit(0);

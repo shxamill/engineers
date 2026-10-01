@@ -1,7 +1,7 @@
 ---
 name: debugger
 description: Debugging and incident engineer. Use for failures without an obvious fix - failing tests or builds, runtime errors, flaky behavior, regressions, incidents. Forensic root-cause analysis, smallest correct fix, regression test.
-tools: Read, Grep, Glob, Bash, Edit, Write
+tools: Read, Grep, Glob, Bash, PowerShell, Edit, Write
 model: opus
 effort: high
 ---

@@ -35,8 +35,8 @@ Class = max(size, risk). Any risk flag (auth, payments, PII, secrets, prod data,
 | G4 Security | – | if risk flag | threat check | threat model | threat model |
 | G5 Plan | – | – | `/eng-plan` | `/eng-plan` | `/eng-plan` |
 | G6 Build | direct | direct or 1 builder | `/eng-build` | `/eng-build` (parallel) | `/eng-build` |
-| G7 Review | self-check diff | `/eng-review` (+ `/eng-secreview` if risk flag) | `/eng-review` | `/eng-review` | `/eng-review` + `/eng-secreview` |
-| G8 Verify | relevant check | `/eng-test` (light) | `/eng-test` | `/eng-test` + adversarial | + perf + rollback test |
+| G7 Review | self-check diff | `/eng-review` (+ `/eng-secreview` if risk flag) | `/eng-review` (+ `/eng-secreview` if risk flag) | `/eng-review` (+ `/eng-secreview` if risk flag) | `/eng-review` + `/eng-secreview` |
+| G8 Verify | relevant check | `/eng-test` (light) | `/eng-test` (+ adversarial if risk flag) | `/eng-test` + adversarial | + adversarial + perf + rollback test |
 | G9 Release | – | – | if deploying | `/eng-release` | `/eng-release` staged |
 | G10 Outcome | – | – | if deployed | verify | verify + observe |
 | Learn | – | – | `/eng-retro` if surprises | `/eng-retro` | `/eng-retro` |
@@ -60,7 +60,7 @@ Spawn a specialist only if the work is specialized, benefits from a fresh contex
 | test-engineer | QA, test automation | coverage gaps, test plan, e2e |
 | code-reviewer | independent reviewer | G7 (via `/eng-review`) |
 | security-engineer | AppSec, security testing, privacy, supply chain | G4/G7 risk work |
-| adversarial-qa | red team QA | MEDIUM+ / risky after build |
+| adversarial-qa | red team QA | after build: LARGE+, or MEDIUM with a risk flag |
 | debugger | debugging, incidents | non-obvious failures |
 | tech-writer | docs, DX | READMEs, release notes |
 

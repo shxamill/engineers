@@ -34,7 +34,7 @@ function lastAssistantText(transcriptPath) {
 const msg = typeof input.last_assistant_message === 'string' ? input.last_assistant_message : lastAssistantText(input.agent_transcript_path);
 if (!msg.trim()) process.exit(0);
 
-const label = (name) => new RegExp(`^[\\s*_#>-]*${name}[*_]*\\s*:[*_\\s]*`, 'm');
+const label = (name) => new RegExp(`^[\\s*_#>-]*${name}[*_\`]*\\s*:[*_\`\\s]*`, 'm');
 const status = msg.match(new RegExp(`${label('STATUS').source}([A-Z_]+)`, 'm'));
 if (!status)
   block(
@@ -50,7 +50,7 @@ if (status[1] === 'PASS') {
     const next = after.search(/^[\s*_#>-]*(RISKS|FOLLOW_UP|RESULT|CHANGED|OBJECTIVE|STATUS)[*_]*\s*:/m);
     evidence = (next >= 0 ? after.slice(0, next) : after).trim();
   }
-  if (!evidence || /^[-*\s]*(none|n\/?a|not run|tbd|-)?[.\s]*$/i.test(evidence))
+  if (!evidence || /^[-*\s]*([.\s]*$|(none|n\/?a|not run|not applicable|nothing|tbd|no evidence|skipped)\b)/i.test(evidence))
     block(
       'STATUS: PASS requires EVIDENCE — the commands/checks you actually ran this session and their outcomes. ' +
         'Run the verification now and report it, or change STATUS to FAIL or BLOCKED and say why.',

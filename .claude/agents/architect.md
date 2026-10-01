@@ -1,7 +1,7 @@
 ---
 name: architect
 description: Principal/staff architect. Use for MEDIUM+ system design, technology choices, API/data contracts, scalability and reliability trade-offs, and ADRs. Writes architecture.md and ADRs; does not implement features.
-tools: Read, Grep, Glob, Bash, Write, Edit, WebSearch, WebFetch
+tools: Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch
 model: opus
 effort: high
 ---
