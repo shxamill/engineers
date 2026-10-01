@@ -14,5 +14,5 @@ paths:
 - Don't duplicate content between CLAUDE.md, skills, and agents; reference instead.
 - Hooks: Node, zero dependencies, cross-platform; fail open on internal errors; exit 2 only for deliberate blocks. Add test cases to `scripts/verify-hooks.mjs` for every new behavior.
 - Prefer native Claude Code mechanisms (permissions, frontmatter fields) over custom scripts.
-- Skills, rules, and hooks reload in a running session; new or changed agents take effect only in a new session. Test agent changes with a fresh session or `claude -p --agent <name>`.
+- Skills, rules, and hooks reload in a running session; new agents can take a while to appear there. Test agent changes immediately with `claude -p --agent <name>` or a new session.
 - After any change: `node scripts/validate-org.mjs && node scripts/verify-hooks.mjs`, and log a `PROC-n` entry in `docs/engineering/decisions.md`.

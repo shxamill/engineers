@@ -93,7 +93,7 @@ RETURN: Handoff (CLAUDE.md)
 Ask only for the CLAUDE.md human decision gates: one AskUserQuestion batch, ≤3 questions, each with options and a recommendation. Low-impact unknowns: assume, record under Assumptions in status.md, continue. Never ask permission for routine engineering.
 
 ## 9. Persist state (as you go, not at the end)
-After each gate, update `docs/engineering/status.md` (Now, Active work, Gates). Durable decisions → `decisions.md`. Keep each artifact compact and current.
+SMALL and above: after each gate, update `docs/engineering/status.md` (Now, Gates, Active work; on completion, Completed and Assumptions). TRIVIAL may skip it. Durable decisions → `decisions.md`. Keep each artifact compact and current.
 
 ## 10. Commit
 Commit verified work in focused commits (`<type>(<scope>): <summary> [T-n]`). If on the default branch, first create `eng/<slug>`. Stage only files this work changed (`git add <paths>`, never `git add -A` over unrelated user changes). Push or open PRs only when the user asks, or via `/eng-release`.
