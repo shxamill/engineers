@@ -1,5 +1,5 @@
 # ADR-0001: Structure of the virtual engineering organization
-_Status: accepted · Date: 2026-10-01 · Deciders: product owner (requested), orchestrator (designed) · Reversibility: easy_
+_Status: partially superseded by ADR-0002 (distribution, rules, approvals); its claim "subagents cannot spawn subagents" is incorrect, since current docs allow depth 3 · Date: 2026-10-01 · Deciders: product owner (requested), orchestrator (designed) · Reversibility: easy_
 
 ## Context
 The goal is an autonomous engineering organization in Claude Code that takes a high-level goal through a professional lifecycle with strong verification and minimal wasted context. Facts verified against the installed CLI (Claude Code 2.1.286):

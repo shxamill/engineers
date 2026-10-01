@@ -1,0 +1,32 @@
+schema_version: "1.0"
+name: 04-fullstack-feature
+description: API + UI vertical slice - DELETE endpoint with 404 handling, UI delete button, tests, verification.
+tags: [fullstack, feature]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/engineering-os:eng Users need to delete notes. Add DELETE /api/notes/:id (404 for unknown ids) and a Delete button next to each note in the UI, with tests."
+  max_turns: 80
+  timeout_seconds: 1800
+runs: 1
+graders:
+  - type: regex
+    name: delete-route
+    target:
+      source: file
+      path: src/app.js
+    pattern: "DELETE"
+  - type: regex
+    name: ui-button
+    target:
+      source: file
+      path: public/index.html
+    pattern: "delete"
+    flags: i
+  - type: regex
+    name: verified-with-engine
+    target: trace
+    pattern: "VERDICT: PASS"
+  - type: llm
+    name: slice-quality
+    criteria: "The DELETE endpoint returns 204/200 on success and 404 for unknown or non-numeric ids, tests cover success and 404, the UI button is keyboard-accessible with an accessible name and refreshes the list, and the agent verified with evidence and reviewed the change independently."

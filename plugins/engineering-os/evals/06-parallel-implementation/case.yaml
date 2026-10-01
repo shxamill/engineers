@@ -1,0 +1,25 @@
+schema_version: "1.0"
+name: 06-parallel-implementation
+description: Two independent modules - parallel work only with disjoint files/isolation, correct integration, verification.
+tags: [parallel, worktree, staffing]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/engineering-os:eng Add two independent utilities with tests: src/truncate.js exporting truncate(text, max) that cuts at a word boundary and appends an ellipsis, and src/titlecase.js exporting titleCase(text) that keeps small words (a, an, the, of, and, or, in, on) lowercase except at the start. They are independent; parallelize if it is worth it."
+  max_turns: 80
+  timeout_seconds: 1800
+runs: 1
+graders:
+  - type: file_exists
+    name: truncate-module
+    path: src/truncate.js
+  - type: file_exists
+    name: titlecase-module
+    path: src/titlecase.js
+  - type: regex
+    name: verified-with-engine
+    target: trace
+    pattern: "VERDICT: PASS"
+  - type: llm
+    name: parallelism-judgment
+    criteria: "The orchestrator made an explicit, reasonable parallelization decision: either it did the two small modules itself and explained why delegation was not worth it, or it spawned workers with disjoint file scopes (and worktree isolation if writing concurrently) and verified and integrated their output. Both modules have tests that pass."

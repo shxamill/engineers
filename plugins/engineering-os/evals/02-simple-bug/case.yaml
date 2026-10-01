@@ -1,0 +1,36 @@
+schema_version: "1.0"
+name: 02-simple-bug
+description: Regression from the latest commit - find the root cause (lost /g flag), fix minimally, keep tests intact, verify.
+tags: [bug, verification]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/engineering-os:eng npm test started failing after the latest commit. Fix it."
+  max_turns: 35
+  timeout_seconds: 900
+runs: 1
+graders:
+  - type: regex
+    name: global-flag-restored
+    target:
+      source: file
+      path: src/slugify.js
+    pattern: "\\[\\^a-z0-9\\]\\+/g"
+  - type: regex
+    name: tests-not-weakened
+    target:
+      source: file
+      path: test/slugify.test.js
+    pattern: "trims separators[\\s\\S]*rejects non-strings"
+  - type: regex
+    name: verified-with-engine
+    target: trace
+    pattern: "VERDICT: PASS"
+  - type: tool_used
+    name: at-most-one-agent
+    tool: Agent
+    min: 0
+    max: 1
+  - type: llm
+    name: root-cause-reported
+    criteria: "The final report states the root cause (the replace regex lost its global /g flag in the latest commit), the minimal fix, and evidence that the tests pass."

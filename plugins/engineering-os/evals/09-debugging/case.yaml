@@ -1,0 +1,31 @@
+schema_version: "1.0"
+name: 09-debugging
+description: Symptom-only bug report - forensic root cause (single-digit capture), minimal fix, regression test that would have failed.
+tags: [debugging]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/engineering-os:eng-debug parseDuration('1h30m') returns 3600 instead of 5400, and '90s' throws. Tests pass, so they miss it."
+  max_turns: 40
+  timeout_seconds: 900
+runs: 1
+graders:
+  - type: regex
+    name: multi-digit-fixed
+    target:
+      source: file
+      path: src/duration.js
+    pattern: "\\\\d\\+|\\\\d\\{1,|\\[0-9\\]\\+"
+  - type: regex
+    name: regression-test-added
+    target:
+      source: file
+      path: test/duration.test.js
+    pattern: "1h30m|90s"
+  - type: regex
+    name: verified-with-engine
+    target: trace
+    pattern: "VERDICT: PASS"
+  - type: llm
+    name: forensic-quality
+    criteria: "The agent reproduced the bug before fixing it, named the root cause (the regex captures only a single digit), applied a minimal fix, and added regression tests for multi-digit values that fail before and pass after the fix."

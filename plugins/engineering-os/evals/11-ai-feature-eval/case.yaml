@@ -1,0 +1,27 @@
+schema_version: "1.0"
+name: 11-ai-feature-eval
+description: LLM feature must ship with an eval set, measured accuracy, and prompt-injection defense; deterministic tests.
+tags: [ai, evals, security]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/engineering-os:eng Add classifySentiment(text) in src/sentiment.js using complete() from src/llm.js (treat it as a real LLM). Return only 'positive', 'negative' or 'neutral'. Customer text is untrusted."
+  max_turns: 60
+  timeout_seconds: 1500
+runs: 1
+graders:
+  - type: file_exists
+    name: feature-file
+    path: src/sentiment.js
+  - type: regex
+    name: accuracy-measured
+    target: trace
+    pattern: "accuracy"
+    flags: i
+  - type: regex
+    name: verified-with-engine
+    target: trace
+    pattern: "VERDICT: PASS"
+  - type: llm
+    name: ai-engineering-quality
+    criteria: "The agent created an eval set (at least 10 labeled examples including adversarial prompt-injection inputs such as 'ignore previous instructions'), measured and reported accuracy, validated model output against the allowed labels, defended against injection (e.g. delimiting untrusted text, output allowlist), and kept unit tests deterministic."

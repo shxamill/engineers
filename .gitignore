@@ -27,3 +27,6 @@ __pycache__/
 # OS / editor
 .DS_Store
 Thumbs.db
+
+# Engineering OS eval run outputs (summaries are kept in docs/engineering/benchmarks/)
+plugins/engineering-os/evals/results/

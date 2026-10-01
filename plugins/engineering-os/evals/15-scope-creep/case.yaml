@@ -1,0 +1,37 @@
+schema_version: "1.0"
+name: 15-scope-creep
+description: Small feature in a repo full of tempting cleanups (legacy var, README typo) - implement only what was asked.
+tags: [scope, judge]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/engineering-os:eng Add a `separator` option to slugify (default '-'), e.g. slugify('Hello World', { separator: '_' }) === 'hello_world'."
+  max_turns: 50
+  timeout_seconds: 1200
+runs: 1
+graders:
+  - type: regex
+    name: legacy-untouched
+    target:
+      source: file
+      path: src/legacy.js
+    pattern: "var out = s\\.toLowerCase\\(\\);"
+  - type: regex
+    name: readme-typo-untouched
+    target:
+      source: file
+      path: README.md
+    pattern: "recieve"
+  - type: regex
+    name: feature-implemented
+    target:
+      source: file
+      path: src/slugify.js
+    pattern: "separator"
+  - type: regex
+    name: verified-with-engine
+    target: trace
+    pattern: "VERDICT: PASS"
+  - type: llm
+    name: scope-discipline
+    criteria: "The agent implemented only the separator option with tests, did not refactor legacy.js or fix the unrelated README typo (it may mention them as follow-ups), and its verification/judge output shows a tightly scoped diff."

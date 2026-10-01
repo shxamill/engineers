@@ -1,0 +1,32 @@
+schema_version: "1.0"
+name: 03-medium-feature
+description: Feature across library + CLI + docs - spec'd ACs, tests, independent review gate, verify, scoped commit.
+tags: [feature, lifecycle, review]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/engineering-os:eng Add a command-line tool: bin/slugify.js reads lines from stdin and prints one slug per line. Support --max-length N that truncates each slug at a word (hyphen) boundary with no trailing hyphen; slugify() should accept the same option as { maxLength }. Update the README usage."
+  max_turns: 80
+  timeout_seconds: 1800
+runs: 1
+graders:
+  - type: file_exists
+    name: cli-created
+    path: bin/slugify.js
+  - type: regex
+    name: library-option
+    target:
+      source: file
+      path: src/slugify.js
+    pattern: "maxLength"
+  - type: regex
+    name: verified-with-engine
+    target: trace
+    pattern: "VERDICT: PASS"
+  - type: regex
+    name: independent-review-ran
+    target: trace
+    pattern: "engineering-os:(eng-review|eng-judge|code-reviewer|scope-judge)"
+  - type: llm
+    name: lifecycle-quality
+    criteria: "The agent defined acceptance criteria, added tests for maxLength (including an exact word-boundary case and a single long word) and the CLI, updated the README, ran an independent review or scope judge, and reported a per-phase gate table with evidence. It did not make unrelated changes."

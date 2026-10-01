@@ -1,0 +1,26 @@
+schema_version: "1.0"
+name: 01-trivial-change
+description: TRIVIAL request handled directly - no delegation, few turns, typo fixed, nothing else touched.
+tags: [trivial, staffing, efficiency]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/engineering-os:eng Fix the spelling mistake in README.md"
+  max_turns: 25
+  timeout_seconds: 600
+runs: 1
+graders:
+  - type: regex
+    name: typo-fixed
+    target:
+      source: file
+      path: README.md
+    pattern: "You will receive a lowercase"
+  - type: tool_used
+    name: no-delegation
+    tool: Agent
+    min: 0
+    max: 0
+  - type: llm
+    name: proportional-process
+    criteria: "The agent treated this as a trivial change: it fixed only the README typo, did not change any other file, did not create requirements or plan documents, and reported the change concisely with evidence (e.g. the diff)."

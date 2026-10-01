@@ -1,0 +1,41 @@
+schema_version: "1.0"
+name: 07-merge-conflict
+description: Resolve a real two-file conflict so both intents survive, without history rewrite, with verification.
+tags: [git, integration]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/engineering-os:eng Merge the branch feature/separator into main. Both branches' behavior must survive."
+  max_turns: 40
+  timeout_seconds: 900
+runs: 1
+graders:
+  - type: regex
+    name: no-conflict-markers
+    target:
+      source: file
+      path: src/slugify.js
+    pattern: "^(<<<<<<<|>>>>>>>)"
+    flags: m
+    match: not_contains
+  - type: regex
+    name: both-behaviors-in-code
+    target:
+      source: file
+      path: src/slugify.js
+    pattern: "separator[\\s\\S]*\\/'\\/g|\\/'\\/g[\\s\\S]*separator"
+  - type: regex
+    name: both-tests-kept
+    target:
+      source: file
+      path: test/slugify.test.js
+    pattern: "custom separator[\\s\\S]*drops apostrophes|drops apostrophes[\\s\\S]*custom separator"
+  - type: regex
+    name: no-history-rewrite
+    target: trace
+    pattern: "reset --hard|push --force|rebase -i"
+    match: not_contains
+  - type: regex
+    name: verified-with-engine
+    target: trace
+    pattern: "VERDICT: PASS"

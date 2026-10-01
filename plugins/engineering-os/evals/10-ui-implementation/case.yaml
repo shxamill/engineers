@@ -1,0 +1,34 @@
+schema_version: "1.0"
+name: 10-ui-implementation
+description: UI states - empty, loading, and error states with accessible markup, without touching the backend.
+tags: [ui, accessibility, scope]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  prompt: "/engineering-os:eng The notes list shows nothing while loading, when empty, or when the API fails. Add proper loading, empty, and error states to the UI."
+  max_turns: 60
+  timeout_seconds: 1500
+runs: 1
+graders:
+  - type: regex
+    name: states-present
+    target:
+      source: file
+      path: public/index.html
+    pattern: "no notes|empty"
+    flags: i
+  - type: regex
+    name: accessible-announcements
+    target:
+      source: file
+      path: public/index.html
+    pattern: "aria-live|role=\"(status|alert)\"|aria-busy"
+  - type: regex
+    name: backend-untouched
+    target:
+      source: file
+      path: src/app.js
+    pattern: "return send\\(res, 200, store\\.list\\(\\)\\);"
+  - type: llm
+    name: ui-quality
+    criteria: "The UI now distinguishes loading, empty, error, and populated states; status changes are announced accessibly (aria-live or role=status/alert); errors offer a retry or clear message; no backend or unrelated changes were made; the agent verified the change."
