@@ -146,7 +146,7 @@ for (const [event, groups] of Object.entries(settings.hooks || {})) {
   for (const g of groups) {
     for (const h of g.hooks || []) {
       if (h.type !== 'command') continue;
-      if (/\$CLAUDE_PROJECT_DIR/.test(h.command) && !h.args)
+      if (/\$\{?CLAUDE_PROJECT_DIR\}?/.test(h.command) && !h.args)
         warn('.claude/settings.json', `${event} hook uses shell form; prefer exec form (command + args) so Windows PowerShell can't drop the path`);
       for (const m of [h.command, ...(h.args || [])].join(' ').matchAll(/\.claude\/hooks\/([\w.-]+)/g)) {
         wired.add(m[1]);

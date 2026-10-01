@@ -50,7 +50,8 @@ if (status[1] === 'PASS') {
     const next = after.search(/^[\s*_#>-]*(RISKS|FOLLOW_UP|RESULT|CHANGED|OBJECTIVE|STATUS)[*_]*\s*:/m);
     evidence = (next >= 0 ? after.slice(0, next) : after).trim();
   }
-  if (!evidence || /^[-*\s]*([.\s]*$|(none|n\/?a|not run|not applicable|nothing|tbd|no evidence|skipped)\b)/i.test(evidence))
+  // Empty, or a dismissal ("none", "n/a — docs only") with no command or number cited.
+  if (!evidence || /^[-*\s]*([.\s]*$|(none|n\/?a|not run|not applicable|nothing|tbd|no evidence|skipped)\b[^`\d]*$)/i.test(evidence))
     block(
       'STATUS: PASS requires EVIDENCE — the commands/checks you actually ran this session and their outcomes. ' +
         'Run the verification now and report it, or change STATUS to FAIL or BLOCKED and say why.',

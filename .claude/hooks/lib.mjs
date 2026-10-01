@@ -32,7 +32,8 @@ const HOME_PREFIX = /^(~|\$home|\$\{home\}|\$env:userprofile|%userprofile%|\/roo
 
 export function isSecretPath(p) {
   if (!p) return false;
-  const norm = String(p).replace(/\\/g, '/').replace(/["'`]/g, '').replace(/\/+$/, '').toLowerCase();
+  let norm = String(p).replace(/\\/g, '/').replace(/["'`]/g, '').replace(/\/+$/, '').toLowerCase();
+  if (!/^[a-z]:\//.test(norm) && !/\$env:/.test(norm) && norm.includes(':')) norm = norm.slice(norm.lastIndexOf(':') + 1); // git <rev>:<path>, scp host:path
   const parts = norm.split('/');
   const name = parts.pop();
   const parent = parts[parts.length - 1] || '';
@@ -55,7 +56,7 @@ export function isSecretPath(p) {
 
 // Path-like substrings worth checking with isSecretPath (works inside quotes and code strings).
 const SECRET_CANDIDATE =
-  /[\w.~$%:\\/@{}-]*(?:\.env(?:\.[\w.-]+)?|id_(?:rsa|dsa|ecdsa|ed25519)|\.(?:pem|key|p12|pfx|jks|keystore)|credentials(?:\.json)?|service-account\.json|\.netrc|\.pgpass|\.git-credentials|\.npmrc|\.pypirc|\.docker[\\/]config\.json|\.kube[\\/]config|gh[\\/]hosts\.yml)(?![\w-])/gi;
+  /[\w.~$%:\\/@{}-]{0,200}(?:\.env(?:\.[\w.-]+)?|id_(?:rsa|dsa|ecdsa|ed25519)|\.(?:pem|key|p12|pfx|jks|keystore)|credentials(?:\.json)?|service-account\.json|\.netrc|\.pgpass|\.git-credentials|\.npmrc|\.pypirc|\.docker[\\/]config\.json|\.kube[\\/]config|gh[\\/]hosts\.yml)(?![\w-])/gi;
 
 export function mentionsSecretPath(text) {
   for (const m of String(text).matchAll(SECRET_CANDIDATE)) if (isSecretPath(m[0])) return m[0];

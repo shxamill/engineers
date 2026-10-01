@@ -1,6 +1,6 @@
 ---
 name: eng-test
-description: Verification gate G8 - choose layered checks for the risk level, map acceptance criteria to tests, fill coverage gaps with test-engineer, run adversarial QA for MEDIUM+ or risky work, and record results.
+description: Verification gate G8 - choose layered checks for the risk level, map acceptance criteria to tests, fill coverage gaps with test-engineer, run adversarial QA for LARGE+ or risk-flagged MEDIUM work, and record results.
 argument-hint: [scope]
 ---
 # Verification (Gate G8)
