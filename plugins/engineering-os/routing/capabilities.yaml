@@ -57,6 +57,20 @@ risk_requirements:
   ui: [ux]
   irreversible: [architecture]
 
+# Evidence each risk flag obliges the final report to show (one row per flag in the acceptance table).
+risk_deliverables:
+  auth: "threat model; constant-time secret comparison; unguessable tokens; tests proving unauthenticated and wrong-credential requests are rejected"
+  payments: "threat model; idempotency; amounts in integer minor units; tests for failure and retry paths"
+  pii: "data inventory; minimization; access control tests; no PII in logs"
+  secrets: "secrets only from environment or secret store; none in code, logs, fixtures, or commits (eng-verify SECRETS PASS)"
+  prod-data: "migration plan with rollback; backup verified; human approval recorded"
+  infra: "plan or diff of infra change; least privilege; rollback path"
+  external-input: "validation at the boundary; size limits; tests for malformed input"
+  new-dependency: "justification; license; maintenance and advisory check; pinned version"
+  ai: "labeled eval set (typical, edge, adversarial incl. prompt injection) with measured score reported; output validated against an allowlist; unit tests mock the model"
+  ui: "loading, empty, error, and success states; keyboard and screen-reader access (labels, aria-live for status); how it was checked"
+  irreversible: "ADR with alternatives; human approval recorded"
+
 capabilities:
   - id: product-management
     agent: product-manager

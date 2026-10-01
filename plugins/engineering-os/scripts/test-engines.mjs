@@ -50,6 +50,8 @@ try {
   const auth = route({ request: 'add login to the express api', scope: 'medium', risk: 'high', flags: ['auth'] }, reg);
   expect('route: auth flag makes threat-modeling + appsec mandatory', auth.mandatory.some((m) => m.startsWith('threat-modeling')) && auth.reviewers.some((r) => r.id === 'appsec'), JSON.stringify(auth));
   expect('route: medium includes scope-judge', auth.reviewers.some((r) => r.id === 'scope-judge'));
+  const ai = route({ request: 'classify sentiment with the llm', scope: 'small', risk: 'medium', flags: ['ai'] }, reg);
+  expect('route: each risk flag carries its required evidence', ai.deliverables.length === 1 && /eval set/.test(ai.deliverables[0].evidence), JSON.stringify(ai.deliverables));
   expect('route: unknown risk flag throws', throws(() => route({ request: 'x', scope: 'small', risk: 'low', flags: ['bogus'] }, reg)));
   const big = route({ request: 'build a saas with dashboard, stripe payments, postgres database, ci pipeline', scope: 'large', risk: 'critical', flags: ['payments', 'pii'] }, reg);
   expect('route: CRITICAL respects max_agents budget', big.staffed.length <= reg.budgets.CRITICAL.max_agents && big.class === 'CRITICAL');

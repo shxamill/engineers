@@ -59,6 +59,7 @@ export function route({ request = '', scope, risk, flags = [] }, registry = load
     overBudget: agentsNeeded > budget.max_agents,
     reviewers: cls === 'TRIVIAL' ? [] : reviewers.map((id) => ({ id, agent: byId.get(id)?.agent ?? id })),
     mandatory: [...required.entries()].map(([id, flag]) => `${id} (risk:${flag})`),
+    deliverables: flags.map((f) => ({ flag: f, evidence: registry.risk_deliverables?.[f] || '' })),
   };
 }
 
@@ -72,6 +73,7 @@ function cli(argv) {
   console.log(`STAFF: ${r.staffed.length ? r.staffed.map((s) => `${s.id}→engineering-os:${s.agent} (${s.model}, ${s.max_turns}t; ${s.why})`).join(' | ') : 'main session only'}`);
   console.log(`REVIEWERS: ${r.reviewers.map((x) => `${x.id}→engineering-os:${x.agent}`).join(', ') || 'self-check diff'}`);
   if (r.mandatory.length) console.log(`MANDATORY (risk): ${r.mandatory.join(', ')}`);
+  for (const d of r.deliverables) console.log(`DELIVERABLE (${d.flag}): ${d.evidence}`);
   if (r.overBudget) console.log('NOTE: candidates exceed the class budget; staff the highest-value ones or reclassify with evidence.');
 }
 

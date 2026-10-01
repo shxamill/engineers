@@ -51,7 +51,7 @@ Turn titles into URL slugs. You will recieve a lowercase, hyphenated string.
     import { slugify } from './src/slugify.js';
     slugify('Hello World'); // 'hello-world'
 MD
-  printf '.eng/\n.bash*\n.profile\n.claude/\n.config/\n.cache/\n.npm/\n.local/\nnode_modules/\n.env\n' > .gitignore
+  printf '.eng/\n.bash*\n.profile\n.claude/\n.config/\n.cache/\n.npm/\n.local/\n.gitconfig\n.idea/\n.mcp.json\nnode_modules/\n.env\n' > .gitignore
   cat > docs/engineering/status.md <<'MD'
 # Engineering Status
 

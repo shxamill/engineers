@@ -160,6 +160,8 @@ if (reg) {
   for (const c of reg.capabilities || []) for (const k of ['depends', 'reviewers']) for (const r of c[k] || []) if (!ids.has(r)) err(`routing/capabilities.yaml#${c.id}`, `${k} references unknown "${r}"`);
   for (const [cls, b] of Object.entries(reg.budgets || {})) for (const r of b.reviewers || []) if (!ids.has(r)) err('routing/capabilities.yaml', `budget ${cls} reviewer "${r}" unknown`);
   for (const [flag, list] of Object.entries(reg.risk_requirements || {})) for (const r of list) if (!ids.has(r)) err('routing/capabilities.yaml', `risk ${flag} → unknown "${r}"`);
+  for (const flag of Object.keys(reg.risk_requirements || {})) if (typeof reg.risk_deliverables?.[flag] !== 'string') err('routing/capabilities.yaml', `risk flag ${flag} has no risk_deliverables entry`);
+  for (const flag of Object.keys(reg.risk_deliverables || {})) if (!reg.risk_requirements?.[flag]) err('routing/capabilities.yaml', `risk_deliverables ${flag} is not a known risk flag`);
   for (const name of agents.keys()) if (!used.has(name)) err(`agents/${name}.md`, 'not referenced by any capability (dead agent)');
 }
 
