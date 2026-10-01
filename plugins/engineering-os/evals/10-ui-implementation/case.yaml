@@ -29,6 +29,10 @@ graders:
       source: file
       path: src/app.js
     pattern: "return send\\(res, 200, store\\.list\\(\\)\\);"
+  - type: regex
+    name: ux-staffed
+    target: trace
+    pattern: "STAFF: ux\\b"
   - type: llm
     name: ui-quality
     criteria: "The UI now distinguishes loading, empty, error, and populated states; status changes are announced accessibly (aria-live or role=status/alert); errors offer a retry or clear message; no backend or unrelated changes were made; the agent verified the change."

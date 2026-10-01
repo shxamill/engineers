@@ -18,7 +18,7 @@ argument-hint: <request>
    Problem / Users / Outcome (observable) / Scope / Non-goals / Constraints / Existing system
    Risk: <level> (<driving dimensions>) · Flags: <…> · Class: <router CLASS>
    Unknowns: <item — impact low|high>
-   Staffing: <router STAFF + REVIEWERS>, or "main session only"
+   Staffing: <router STAFF + REVIEWERS>, or "main session only"; + "you cover: <UNSTAFFED>" if printed
    Acceptance: <numbered, testable criteria> + one row per router DELIVERABLE line
    ```
 6. **Discovery (F1)** for new products or unclear requests (skip for known bugs and small changes): write `docs/engineering/product.md` from `${CLAUDE_PLUGIN_ROOT}/templates/product.md`, a PR/FAQ-style brief covering target user, problem, current alternatives, assumptions vs evidence, success metric, non-goals, minimum useful version. When uncertainty is high, validate before building: the smallest experiment, prototype, or human question that resolves it.

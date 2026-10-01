@@ -44,21 +44,23 @@ export function route({ request = '', scope, risk, flags = [] }, registry = load
   const reviewers = [...new Set([...budget.reviewers, ...[...required.keys()].filter((id) => ['appsec', 'supply-chain', 'privacy'].includes(id))])];
 
   // Staffing policy: TRIVIAL = main session only; SMALL = at most one specialist.
-  let staffed = cls === 'TRIVIAL' ? [] : candidates.map(({ c, hits }) => ({ id: c.id, agent: c.agent, model: c.model, max_turns: c.max_turns, parallel: c.parallel, why: hits.join(', ') }));
-  for (const [id, flag] of required) {
-    if (reviewers.includes(id) || staffed.some((s) => s.id === id)) continue;
-    const c = byId.get(id);
-    staffed.push({ id, agent: c.agent, model: c.model, max_turns: c.max_turns, parallel: c.parallel, why: `risk:${flag}` });
-  }
+  // Risk-flag capabilities go first, so a budget cut drops trigger matches before mandatory ones (PROC-16).
+  const entry = (c, why) => ({ id: c.id, agent: c.agent, model: c.model, max_turns: c.max_turns, parallel: c.parallel, why });
+  let staffed = [...required].filter(([id]) => !reviewers.includes(id)).map(([id, flag]) => entry(byId.get(id), `risk:${flag}`));
+  if (cls !== 'TRIVIAL') for (const { c, hits } of candidates) if (!staffed.some((s) => s.id === c.id)) staffed.push(entry(c, hits.join(', ')));
   if (cls === 'SMALL') staffed = staffed.slice(0, 1);
   const agentsNeeded = new Set(staffed.map((s) => s.agent)).size;
+  staffed = staffed.slice(0, Math.max(0, budget.max_agents));
+  const reviewersOut = cls === 'TRIVIAL' ? [] : reviewers;
   return {
     class: cls,
     budget,
-    staffed: staffed.slice(0, Math.max(0, budget.max_agents)),
+    staffed,
     overBudget: agentsNeeded > budget.max_agents,
-    reviewers: cls === 'TRIVIAL' ? [] : reviewers.map((id) => ({ id, agent: byId.get(id)?.agent ?? id })),
+    reviewers: reviewersOut.map((id) => ({ id, agent: byId.get(id)?.agent ?? id })),
     mandatory: [...required.entries()].map(([id, flag]) => `${id} (risk:${flag})`),
+    // Mandatory capabilities with neither a staffed slot nor a reviewer seat: the orchestrator covers them itself.
+    unstaffed: [...required.entries()].filter(([id]) => !staffed.some((s) => s.id === id) && !reviewersOut.includes(id)).map(([id, flag]) => `${id} (risk:${flag})`),
     deliverables: flags.map((f) => ({ flag: f, evidence: registry.risk_deliverables?.[f] || '' })),
   };
 }
@@ -73,6 +75,7 @@ function cli(argv) {
   console.log(`STAFF: ${r.staffed.length ? r.staffed.map((s) => `${s.id}→engineering-os:${s.agent} (${s.model}, ${s.max_turns}t; ${s.why})`).join(' | ') : 'main session only'}`);
   console.log(`REVIEWERS: ${r.reviewers.map((x) => `${x.id}→engineering-os:${x.agent}`).join(', ') || 'self-check diff'}`);
   if (r.mandatory.length) console.log(`MANDATORY (risk): ${r.mandatory.join(', ')}`);
+  if (r.unstaffed.length) console.log(`UNSTAFFED (risk): ${r.unstaffed.join(', ')}; no slot left in the class budget, so the orchestrator covers these itself`);
   for (const d of r.deliverables) console.log(`DELIVERABLE (${d.flag}): ${d.evidence}`);
   if (r.overBudget) console.log('NOTE: candidates exceed the class budget; staff the highest-value ones or reclassify with evidence.');
 }

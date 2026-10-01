@@ -12,7 +12,7 @@ Deterministic hooks and scripts enforce the critical gates. Agent instructions a
 [![org-ci](https://github.com/shxamill/engineers/actions/workflows/org-ci.yml/badge.svg)](https://github.com/shxamill/engineers/actions/workflows/org-ci.yml)
 
 > [!NOTE]
-> **Status: experimental (plugin v2.0.0).** Automated suites cover the OS: a validator, 255 hook tests, and 46 engine tests, run in CI on Ubuntu and Windows. A 15-scenario benchmark has also been run. The OS has not yet been used on a production codebase, and it has only been tested with Claude Code 2.1.286 and 2.1.287. Read [Known limitations](#known-limitations) before relying on it.
+> **Status: experimental (plugin v2.0.0).** Automated suites cover the OS: a validator, 255 hook tests, and 53 engine tests, run in CI on Ubuntu and Windows. A 15-scenario benchmark has also been run. The OS has not yet been used on a production codebase, and it has only been tested with Claude Code 2.1.286 and 2.1.287. Read [Known limitations](#known-limitations) before relying on it.
 
 **Contents:** [Overview](#overview) · [Problem](#the-problem) · [Solution](#the-solution) · [How it works](#how-it-works) · [Lifecycle](#engineering-lifecycle) · [Staffing](#dynamic-staffing) · [Organization](#organization-map) · [Context efficiency](#token-and-context-efficiency) · [Security](#safety-and-security) · [Verification](#verification-and-quality) · [Failure recovery](#failure-recovery) · [Example](#example-from-request-to-verified-outcome) · [Installation](#installation) · [Quick start](#quick-start) · [Commands](#commands) · [Repository structure](#repository-structure) · [Internals](#architecture-internals) · [Evaluation](#evaluation) · [Testing](#testing-the-os-itself) · [Limitations](#known-limitations) · [Principles](#design-principles) · [Roadmap](#roadmap) · [Contributing](#contributing) · [License](#license) · [Support](#support)
 
@@ -163,7 +163,7 @@ Scope sets the class. Critical risk always means CRITICAL, and high risk is neve
 
 "Add an empty state and error state to the    scope small · risk low · flags ui
  notes list page component"
-→ CLASS SMALL · STAFF: frontend-engineer
+→ CLASS SMALL · STAFF: ux-designer (risk:ui)
   REVIEWERS: code-reviewer
   MANDATORY: ux (risk:ui)   DELIVERABLE (ui): loading, empty, error, and success states;
                             keyboard and screen-reader access; how it was checked
@@ -186,7 +186,8 @@ Scope sets the class. Critical risk always means CRITICAL, and high risk is neve
 
 Some facts about how staffing behaves:
 - **Capabilities are not permanently running sessions.** A specialist exists only for the duration of its task. Several capabilities share one agent; `backend`, `database`, and `integrations` all map to `backend-engineer`, for example.
-- **"Mandatory" means the capability must be covered, not necessarily by a separate agent.** When the class budget has no room left, as in the SMALL example above where `ux` is mandatory but only one specialist slot exists, the orchestrator covers the capability itself.
+- **Mandatory capabilities are staffed first.** A risk flag's capabilities take the class budget's slots before any capability matched by keywords. In the SMALL example above, `ux` gets the single slot even though the request also matched `frontend`, and the main session builds the component itself, as it does for all SMALL work.
+- **"Mandatory" means the capability must be covered, not necessarily by a separate agent.** AppSec, privacy, and supply-chain are covered as reviewers. When the budget still has no room, the router names the capability on an `UNSTAFFED` line and the orchestrator covers it itself. This happens at TRIVIAL, which has no slots, and when SMALL work needs two mandatory capabilities: `prod-data` requires both `database` and `release`.
 - **Agent teams stay off by default.** Claude Code's experimental agent teams are reserved for LARGE/CRITICAL work with at least three genuinely independent streams. Enabling them changes ordinary delegation as well, as covered in [Known limitations](#known-limitations).
 
 ## Organization map
@@ -505,7 +506,7 @@ flowchart LR
 | Orchestrator | [`skills/eng/SKILL.md`](plugins/engineering-os/skills/eng/SKILL.md) | The control plane: orient, classify, route, delegate, verify handoffs, enforce gates, report |
 | Constitution | [`constitution.md`](plugins/engineering-os/constitution.md) | Universal rules (evidence, scope, tests, security, git, human gates), injected into the main session and every org subagent |
 | Capability registry | [`routing/capabilities.yaml`](plugins/engineering-os/routing/capabilities.yaml) | 31 capabilities with triggers, risk triggers, classes, tools, model, turn limits, reviewers; class budgets; risk flag rules and deliverables |
-| Router | [`scripts/eng-route.mjs`](plugins/engineering-os/scripts/eng-route.mjs) | Deterministic class, budget, staff, reviewers, mandatory capabilities, deliverables |
+| Router | [`scripts/eng-route.mjs`](plugins/engineering-os/scripts/eng-route.mjs) | Deterministic class, budget, staff (mandatory capabilities first), reviewers, mandatory and unstaffed capabilities, deliverables |
 | Agents | [`agents/`](plugins/engineering-os/agents) | 16 role definitions with explicit tools, model, and `maxTurns`; validator-checked against the registry |
 | Skills | [`skills/`](plugins/engineering-os/skills) | One skill per lifecycle step. Review skills run in a forked subagent context; standards activate by path |
 | Project adapter | [`scripts/eng-detect.mjs`](plugins/engineering-os/scripts/eng-detect.mjs) | Detects stack, check commands, CI, deploy, database, and AI usage into `project-profile.json`; human overrides survive re-detection |
@@ -576,7 +577,7 @@ claude plugin eval . --scaffold --trust-plugin --allow-tools Bash Write Edit --a
 |---|---|---|
 | [`validate-org.mjs`](plugins/engineering-os/scripts/validate-org.mjs) | Plugin layout and manifests; agent and skill frontmatter; registry⇄agent drift (tools, model, `maxTurns`); hook exec form; cross-references; description and constitution size budgets; risk-flag rules | Locally and in CI (Ubuntu, Windows) |
 | [`verify-hooks.mjs`](plugins/engineering-os/scripts/verify-hooks.mjs) (255 cases) | Bash guard allow/ask/deny decisions, including quoting, heredocs, wrappers, nested shells, and a PowerShell table; secrets guard; handoff contract and gate ledger; session and subagent context; every completion-gate condition; formatter no-op paths | Locally and in CI (Ubuntu, Windows) |
-| [`test-engines.mjs`](plugins/engineering-os/scripts/test-engines.mjs) (46 cases) | YAML parser, router, project detection, verifier (tamper, secrets, overrides, baseline), plan checker | Locally and in CI (Ubuntu, Windows) |
+| [`test-engines.mjs`](plugins/engineering-os/scripts/test-engines.mjs) (53 cases) | YAML parser, router, project detection, verifier (tamper, secrets, overrides, baseline), plan checker | Locally and in CI (Ubuntu, Windows) |
 | `claude plugin validate --strict` | Plugin schema and components, using Claude Code's own validator | Locally |
 | Benchmark (`claude plugin eval`) | End-to-end behavior in 15 scenarios | Locally, opt-in (costs money) |
 
@@ -592,9 +593,9 @@ claude plugin eval . --scaffold --trust-plugin --allow-tools Bash Write Edit --a
   - risk-flag deliverables;
   - the acceptance table;
   - reviewers not editing files (they keep Bash);
-  - running gate reviewers in the foreground.
+  - running gate reviewers in the foreground;
+  - covering a mandatory capability the router lists as `UNSTAFFED` because the class budget had no slot left for it.
 - The completion gate **fails open on internal errors**, blocks once per stop attempt, and can be turned off per project (`"stopGate": false` in `project-profile.json`). Its class-size check is coarse: it counts non-test source files and top-level directories.
-- In SMALL work, a risk flag's mandatory capability may not get its own agent when another capability matched the request, because there is a single specialist slot. The orchestrator must cover it.
 
 **Platform**
 - **Native Windows:** the OS sandbox is unsupported (use WSL2), and the hooks are verified in CI only, not in a live interactive Windows session.

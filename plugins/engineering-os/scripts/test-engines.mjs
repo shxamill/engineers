@@ -5,6 +5,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { parseYaml } from './lib/yaml-lite.mjs';
 import { classify, route, loadRegistry } from './eng-route.mjs';
 import { detect } from './eng-detect.mjs';
@@ -55,6 +56,22 @@ try {
   expect('route: unknown risk flag throws', throws(() => route({ request: 'x', scope: 'small', risk: 'low', flags: ['bogus'] }, reg)));
   const big = route({ request: 'build a saas with dashboard, stripe payments, postgres database, ci pipeline', scope: 'large', risk: 'critical', flags: ['payments', 'pii'] }, reg);
   expect('route: CRITICAL respects max_agents budget', big.staffed.length <= reg.budgets.CRITICAL.max_agents && big.class === 'CRITICAL');
+  // PROC-16: risk-flag capabilities take budget slots before trigger matches; leftovers are reported as unstaffed.
+  const uiSmall = route({ request: 'add an empty state and error state to the notes list page component', scope: 'small', risk: 'low', flags: ['ui'] }, reg);
+  expect('route: SMALL slot goes to the mandatory capability, not a trigger match', uiSmall.staffed.length === 1 && uiSmall.staffed[0].id === 'ux' && uiSmall.staffed[0].why === 'risk:ui' && uiSmall.unstaffed.length === 0, JSON.stringify(uiSmall));
+  const prodSmall = route({ request: 'add a migration for the orders table', scope: 'small', risk: 'high', flags: ['prod-data'] }, reg);
+  expect('route: SMALL names mandatory capabilities left without a slot', prodSmall.staffed.length === 1 && prodSmall.staffed[0].id === 'database' && prodSmall.unstaffed.join() === 'release (risk:prod-data)', JSON.stringify(prodSmall));
+  const authSmall = route({ request: 'add login to the express api', scope: 'small', risk: 'high', flags: ['auth'] }, reg);
+  expect('route: mandatory reviewers are covered, not unstaffed', authSmall.staffed[0]?.id === 'threat-modeling' && authSmall.reviewers.some((r) => r.id === 'appsec') && authSmall.unstaffed.length === 0, JSON.stringify(authSmall));
+  const aiMedium = route({ request: 'build a react dashboard page with an express api, postgres database, ci pipeline and stripe checkout', scope: 'medium', risk: 'medium', flags: ['ai'] }, reg);
+  expect('route: MEDIUM budget cut keeps mandatory capabilities', aiMedium.staffed.length === reg.budgets.MEDIUM.max_agents && aiMedium.staffed.some((s) => s.id === 'ai-ml') && aiMedium.overBudget && aiMedium.unstaffed.length === 0, JSON.stringify(aiMedium.staffed));
+  const uiTrivial = route({ request: 'tweak a label', scope: 'trivial', risk: 'low', flags: ['ui'] }, reg);
+  expect('route: TRIVIAL leaves mandatory capabilities to the orchestrator', uiTrivial.staffed.length === 0 && uiTrivial.unstaffed.join() === 'ux (risk:ui)', JSON.stringify(uiTrivial));
+  const routeCli = (...a) => spawnSync(process.execPath, [fileURLToPath(new URL('./eng-route.mjs', import.meta.url)), ...a], { encoding: 'utf8' }).stdout;
+  const uiOut = routeCli('--request', 'add an empty state and error state to the notes list page component', '--scope', 'small', '--risk', 'low', '--flags', 'ui');
+  expect('route CLI: SMALL ui request staffs ux and prints no UNSTAFFED line', /^STAFF: ux→engineering-os:ux-designer/m.test(uiOut) && !/UNSTAFFED/.test(uiOut), uiOut);
+  const prodOut = routeCli('--request', 'add a migration for the orders table', '--scope', 'small', '--risk', 'high', '--flags', 'prod-data');
+  expect('route CLI: prints UNSTAFFED for a mandatory capability without a slot', /^UNSTAFFED \(risk\): release \(risk:prod-data\);.*orchestrator covers/m.test(prodOut), prodOut);
 
   // ---------- project adapter ----------
   const node = fixture('node', {

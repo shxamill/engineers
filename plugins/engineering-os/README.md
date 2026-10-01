@@ -191,7 +191,7 @@ Order inside F9–F11: deterministic verification first, then the scope judge, t
 | `ui` | ux | Loading, empty, error, and success states; keyboard and screen-reader access; how it was checked |
 | `irreversible` | architecture | ADR with alternatives; recorded human approval |
 
-AppSec, privacy, and supply-chain become required **reviewers**, so the completion gate waits for their PASS. The other capabilities are staffed when the class budget allows, and otherwise covered by the orchestrator.
+AppSec, privacy, and supply-chain become required **reviewers**, so the completion gate waits for their PASS. The other capabilities are staffed **before** any capability the request matched by keywords, so a budget cut drops keyword matches first. With `--flags ui`, SMALL's single slot goes to `ux`, not to `frontend`. A required capability that still has no slot is printed on an `UNSTAFFED` line, and the orchestrator covers it itself. That happens at TRIVIAL, which has no slots, or when SMALL work needs two such capabilities, as `prod-data` does (`database` and `release`).
 
 ## Agents
 
@@ -224,7 +224,7 @@ Deterministic Node.js scripts with no dependencies. Skills call them as `node "$
 
 | Script | Usage | Output and exit code |
 |---|---|---|
-| `eng-route.mjs` | `--request "<summary>" --scope trivial\|small\|medium\|large --risk low\|medium\|high\|critical [--flags f1,f2] [--json]` | CLASS, BUDGET, STAFF, REVIEWERS, MANDATORY, and one DELIVERABLE line per flag; exit 2 on bad input |
+| `eng-route.mjs` | `--request "<summary>" --scope trivial\|small\|medium\|large --risk low\|medium\|high\|critical [--flags f1,f2] [--json]` | CLASS, BUDGET, STAFF, REVIEWERS, MANDATORY, UNSTAFFED (only when a mandatory capability got no slot), and one DELIVERABLE line per flag; exit 2 on bad input |
 | `eng-detect.mjs` | `[projectDir] [--write]` | STACK, CHECKS, CI, DEPLOY, DATA, AI, NOTES; `--write` saves `project-profile.json` (keeping `overrides` and `stopGate: false`) |
 | `eng-verify.mjs` | `[projectDir] [targeted\|standard\|full] [--only k1,k2] [--skip k] [--base ref] [--network] [--timeout ms] [--json]` | Compact verdict lines plus an EVIDENCE path; exit 0 on PASS or NO_CHECKS, 1 on FAIL, 2 on usage error |
 | `eng-plan-check.mjs` | `[planPath] [--json]` | Errors (cycles, unknown dependencies, same-wave file overlap, bad states, unknown capabilities) and `READY NOW`; exit 1 on errors |
