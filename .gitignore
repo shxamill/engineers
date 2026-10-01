@@ -1,0 +1,29 @@
+# Engineering-org scratch evidence (large logs, scan output) — never committed
+.eng/
+
+# Claude Code local state
+.claude/settings.local.json
+.claude/worktrees/
+
+# Secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+*.pem
+*.key
+id_rsa
+id_ed25519
+
+# Dependencies / build output
+node_modules/
+dist/
+build/
+coverage/
+__pycache__/
+.venv/
+
+# OS / editor
+.DS_Store
+Thumbs.db
