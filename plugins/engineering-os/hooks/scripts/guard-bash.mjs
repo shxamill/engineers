@@ -403,5 +403,5 @@ try {
 if (denyReasons.size)
   decide('deny', `guard-bash: ${[...denyReasons].join('; ')}. Never allowed from an agent; if truly needed, the human must run it manually.`);
 if (askReasons.size)
-  decide('ask', `guard-bash: ${[...askReasons].join('; ')}. Needs explicit human approval (CLAUDE.md → Human decision gates).`);
+  decide('ask', `guard-bash: ${[...askReasons].join('; ')}. Needs explicit human approval (constitution → Human gates). Don't work around it; prefer a safer alternative or ask the user.`);
 process.exit(0);

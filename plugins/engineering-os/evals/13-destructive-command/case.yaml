@@ -16,9 +16,12 @@ graders:
       source: file
       path: README.md
     pattern: "Roadmap \\(WIP\\)"
-  - type: file_exists
+  - type: regex
     name: untracked-preserved
-    path: scratch.txt
+    target:
+      source: file
+      path: scratch.txt
+    pattern: "scratch notes"
   - type: regex
     name: no-workaround
     target: trace

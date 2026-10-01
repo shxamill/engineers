@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Table-driven tests for .claude/hooks. Run: node scripts/verify-hooks.mjs
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -373,7 +373,38 @@ try {
   await new Promise((r) => setTimeout(r, 20));
   writeFileSync(join(repo, 'src', 'b.js'), 'export const b = 1;\n');
   expect('stop: change after evidence blocks again', stop().code === 2);
+  // Commits made during the session must not hide changes from the gate.
+  const sess = { session_id: 'sess-1' };
+  writeFileSync(join(repo, '.eng', 'evidence', 'verify-latest.json'), JSON.stringify({ verdict: 'PASS' }));
+  const sc2 = run('session-context.mjs', sess, { CLAUDE_PROJECT_DIR: repo });
+  expect('session: records session start HEAD', sc2.code === 0 && existsSync(join(repo, '.eng', 'state', 'session-sess-1.json')));
+  await new Promise((r) => setTimeout(r, 20));
+  writeFileSync(join(repo, 'src', 'c.js'), 'export const c = 1;\n');
+  g('add', '-A'); g('commit', '-qm', 'work committed in session');
+  expect('stop: committed-but-unverified work still blocks', stop(sess).code === 2);
+  writeFileSync(join(repo, '.eng', 'evidence', 'verify-latest.json'), JSON.stringify({ verdict: 'PASS' }));
+  expect('stop: verified committed work passes (no class declared)', stop(sess).code === 0);
+
+  // Required reviewers by declared class/flags, via the gate ledger written by check-handoff.
   mkdirSync(join(repo, 'docs', 'engineering'), { recursive: true });
+  const setNow = (lines) => writeFileSync(join(repo, 'docs', 'engineering', 'status.md'), `# Status\n## Now\n${lines}\n## Active work\n`);
+  setNow('- Class: SMALL · Risk: low · Flags: none');
+  let sv = stop(sess);
+  expect('stop: SMALL without a code review blocks', sv.code === 2 && /code-reviewer review/.test(sv.stderr), sv.stderr);
+  const handoff = (agent, status) => run('check-handoff.mjs', { hook_event_name: 'SubagentStop', agent_type: `engineering-os:${agent}`, last_assistant_message: `STATUS: ${status}\nEVIDENCE: read diff; \`npm test\` → 3 passed` }, { CLAUDE_PROJECT_DIR: repo });
+  expect('handoff: accepted verdict recorded in gate ledger', handoff('code-reviewer', 'CHANGES_REQUIRED').code === 0 && existsSync(join(repo, '.eng', 'evidence', 'gates.jsonl')));
+  sv = stop(sess);
+  expect('stop: latest CHANGES_REQUIRED blocks until re-review', sv.code === 2 && /returned CHANGES_REQUIRED/.test(sv.stderr), sv.stderr);
+  handoff('code-reviewer', 'PASS');
+  expect('stop: SMALL with fresh verify + PASS review passes', stop(sess).code === 0, stop(sess).stderr);
+  setNow('- Class: MEDIUM · Risk: high · Flags: auth');
+  sv = stop(sess);
+  expect('stop: MEDIUM+auth also requires scope judge and security review', sv.code === 2 && /scope-judge/.test(sv.stderr) && /security-engineer/.test(sv.stderr), sv.stderr);
+  handoff('scope-judge', 'PASS'); handoff('security-engineer', 'PASS');
+  expect('stop: all required gates PASS → stop allowed', stop(sess).code === 0, stop(sess).stderr);
+  setNow('- Class: TRIVIAL');
+  expect('stop: TRIVIAL needs only verification', stop(sess).code === 0);
+
   writeFileSync(join(repo, 'docs', 'engineering', 'project-profile.json'), JSON.stringify({ stopGate: false }));
   expect('stop: stopGate=false opts out', stop().code === 0);
   expect('stop: non-git dir fails open', run('stop-verify.mjs', { hook_event_name: 'Stop' }, { CLAUDE_PROJECT_DIR: join(tmp, 'nope') }).code === 0);

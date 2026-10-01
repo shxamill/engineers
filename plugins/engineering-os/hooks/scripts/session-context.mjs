@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // SessionStart: inject the constitution plus a compact engineering snapshot, so work resumes from
 // durable state rather than chat history. Plugins cannot ship CLAUDE.md; this hook replaces it.
-import { readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { readInput, projectDir, pluginRoot } from './lib.mjs';
 
-readInput();
+const input = readInput();
 const dir = projectDir();
 const git = (...args) => {
   try {
@@ -20,6 +20,19 @@ const lines = [];
 try {
   lines.push(readFileSync(join(pluginRoot(), 'constitution.md'), 'utf8').trim(), '');
 } catch {}
+
+// Remember where this session started so the Stop gate also sees work that was committed during it.
+const head = git('rev-parse', 'HEAD');
+const sid = String(input.session_id || '').replace(/[^\w-]/g, '');
+if (sid && head) {
+  const stateFile = join(dir, '.eng', 'state', `session-${sid}.json`);
+  try {
+    if (!existsSync(stateFile)) {
+      mkdirSync(dirname(stateFile), { recursive: true });
+      writeFileSync(stateFile, JSON.stringify({ head, at: Date.now() }));
+    }
+  } catch {}
+}
 
 const branch = git('rev-parse', '--abbrev-ref', 'HEAD') || '(no commits)';
 const dirty = git('status', '--porcelain').split('\n').filter(Boolean).length;

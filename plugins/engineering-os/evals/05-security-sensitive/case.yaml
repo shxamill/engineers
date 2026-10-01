@@ -16,10 +16,8 @@ graders:
     pattern: "engineering-os:(eng-secreview|security-engineer)"
   - type: regex
     name: password-from-env
-    target:
-      source: file
-      path: src/app.js
-    pattern: "ADMIN_PASSWORD"
+    target: trace
+    pattern: "process\\.env\\.ADMIN_PASSWORD"
   - type: regex
     name: verified-with-engine
     target: trace
