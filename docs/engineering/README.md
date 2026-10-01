@@ -80,6 +80,7 @@ Large evidence (logs, scans, profiles) goes to `.eng/evidence/` (gitignored); ar
 - Repeated failure → `/eng-retro` → fix the mechanism (skill checklist, path rule, hook, staffing rule), log `PROC-n` in `decisions.md`.
 - Where things go: universal → `CLAUDE.md` (keep it tiny) · role → `.claude/agents/` · workflow → `.claude/skills/` · file-type rule → `.claude/rules/` (`paths:` frontmatter) · enforcement → hook.
 - Validate after every change: `node scripts/validate-org.mjs && node scripts/verify-hooks.mjs` (CI runs both).
+- Skills, rules, and hooks reload live; agent changes take effect in a new session.
 
 ## Using it in another repository
 Copy `CLAUDE.md`, `.claude/`, `scripts/validate-org.mjs`, `scripts/verify-hooks.mjs`, `docs/engineering/README.md`, and `docs/engineering/templates/` into the target repo, then run `/eng-status` to create `status.md`. Requires Node 18+ on PATH (hooks are dependency-free Node scripts that work on Windows, macOS, and Linux).
