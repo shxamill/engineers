@@ -44,7 +44,7 @@ Order inside F9–F11: deterministic first (eng-verify), then the cheap judge (s
 - Multi-agent work costs ~15× the tokens (research R-AG-2). Parallelize only independent tasks with disjoint files (eng-plan-check enforces this). Concurrent writers use `isolation: "worktree"`, commit on their branch, and you merge one at a time with eng-verify after each.
 - Agent teams: off by default. Use them only for LARGE/CRITICAL work with ≥3 genuinely independent streams that need peer coordination, with 3–5 teammates, after recording why (needs `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`).
 - Models: registry defaults (haiku: mechanical; sonnet: implementation; opus: architecture, security, review, hard debugging). Escalate one tier only on evidence (two failed attempts, CRITICAL decisions); downgrade mechanical tasks.
-- Retry budget per task (BUDGET.retries): attempt 1 → attempt 2 fed with the verifier errors → change strategy → `/engineering-os:eng-debug` → architecture review for systemic failure → human only for a real decision. Never loop.
+- Retry budget per task (BUDGET.retries): attempt 1 → attempt 2 fed with the verifier errors → change strategy → `/engineering-os:eng-debug` → architecture review for systemic failure → human only for a real decision. Never loop. Review rounds count too: after BUDGET.retries CHANGES_REQUIRED rounds from one reviewer, fix only BLOCKING/HIGH findings and report the rest as open risks; hardening beyond the request is a follow-up, not this change.
 - Task tools: if TaskCreate/TaskUpdate exist, mirror the DAG for live tracking. `implementation-plan.md` stays authoritative.
 
 ## 5. Delegation contract (≤25 lines; reference paths, never paste artifacts)

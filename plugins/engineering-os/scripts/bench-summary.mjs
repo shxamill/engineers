@@ -11,7 +11,7 @@ const runs = [];
 for (const c of r.cases || []) for (const a of c.arms?.with || []) runs.push({ name: c.name, ...a });
 
 const fmt = (n, d = 2) => (typeof n === 'number' ? n.toFixed(d) : '-');
-const lines = [`# ${title}`, '', `_Claude Code ${r.claude_version || '?'} · started ${r.started_at || '?'} · ${runs.length} runs · concurrency ${r.concurrency ?? '?'}${r.partial ? ` · PARTIAL (${r.partial_reason})` : ''}_`, ''];
+const lines = [`# ${title}`, '', `_Claude Code ${r.claudeVersion || r.claude_version || '?'} · started ${r.startedAt || r.started_at || '?'} · ${runs.length} runs · concurrency ${r.suite?.concurrency ?? r.concurrency ?? '?'} · model ${r.suite?.modelOverride || 'default'}${r.partial ? ` · PARTIAL` : ''}_`, ''];
 lines.push('| Case | Score | Pass | Turns | Cost $ | Time s | Failed graders |', '|---|---|---|---|---|---|---|');
 for (const x of runs) {
   const failed = (x.graders || []).filter((g) => g.scored !== false && !g.passed).map((g) => `${g.name}: ${String(g.explanation || '').replace(/\|/g, '/').slice(0, 90)}`);
