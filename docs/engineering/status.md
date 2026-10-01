@@ -1,34 +1,32 @@
 # Engineering Status
 
 ## Now
-- Objective: Engineering org bootstrapped and validated (ADR-0001); ready for the first product goal
-- Class: LARGE · Risk flags: none (no product code yet)
-- Phase: idle — awaiting `/eng <goal>`
-- Current task: none
-- Next actions: owner verifies hooks fire on their Windows machine; give the org its first goal
+- Objective: Engineering OS V2 — audit, research, plugin implementation, benchmark (ADR-0002)
+- Class: LARGE · Flags: none (tooling only; no product code)
+- Phase: F15 retrospective — benchmark run 2 under analysis
+- Current task: record run-2 results, retrospective 0002, final validation
+- Next actions: owner installs the plugin on Windows and runs `/engineering-os:eng-init` in a real product repo
 - Blockers: none
 
-## Gates
-G0 ✓ · G1 ✓ · G2 – · G3 ✓ · G4 ✓ · G5 ✓ · G6 ✓ · G7 ✓ (2 review rounds, all findings fixed) · G8 ✓ · G9 – · G10 –
-
-## Active work
-| Task | Owner | State | Branch/worktree |
-|---|---|---|---|
+## Phases
+F0 ✓ audit · F1 ✓ research · F2–F6 ✓ design (ADR-0002) · F7–F9 ✓ build · F10 ✓ verify (validator, hooks, engines, plugin validate) · F11 ✓ benchmark run 1 · F15 in progress
 
 ## Checks
-`node scripts/validate-org.mjs` · `node scripts/verify-hooks.mjs`
+`node plugins/engineering-os/scripts/validate-org.mjs` · `node plugins/engineering-os/scripts/verify-hooks.mjs` (250) · `node plugins/engineering-os/scripts/test-engines.mjs` (45) · `claude plugin validate plugins/engineering-os --strict`
 
 ## Risks
-- Bash guard is heuristic (variables, aliases, generated scripts can evade it); it is a safety net, not a sandbox.
-- Hooks are verified live on Linux and in CI on Windows, but not yet live in Claude Code on Windows.
+- Bash guard is heuristic (variables, aliases, generated scripts can evade it); the native sandbox is the boundary, the guard is defense in depth.
+- Hooks are verified on Linux live and on Windows only in CI; not yet live in Claude Code on Windows. The native sandbox on Windows is documented as unsupported (use WSL2) although the 2.1.286 binary contains Windows sandbox code.
+- The benchmark uses Sonnet with 1 run per case; scores have run-to-run variance.
 
 ## Assumptions
-- [ASSUMPTION] Node 18+ is on PATH wherever this org runs (hooks need it).
-- [ASSUMPTION] Products will be built in this repo or the org copied into product repos.
+- [ASSUMPTION] Node 18+ is on PATH wherever the plugin runs (hooks and engines need it).
+- [ASSUMPTION] Product repos install the plugin from this marketplace; no OS files are copied into them.
 
 ## Completed (last 10)
-- Org config: CLAUDE.md, 15 agents, 14 skills, 8 rules, 5 hooks, 11 templates, validator, CI (Ubuntu + Windows)
-- Live workflow tests t1–t6 in sandboxes (simple, medium ×2, review, recovery, debug, guards)
-- PROC-1..6 process fixes from test evidence and two independent G7 reviews
-- Hook suite: 224 cases, mutation-tested
-- Retrospective 0001 recorded
+- V2 audit (25 findings) and research log (R-CC/R-AG/R-ORG)
+- Plugin + marketplace packaging; constitution injected by SessionStart/SubagentStart hooks
+- Capability registry (31 capabilities) + router; detect / verify / plan-check engines
+- 16 agents, 24 skills, F0–F16 lifecycle, Stop verification gate with gate ledger
+- Hook suite 250 cases, engine suite 45 cases, CI on Ubuntu + Windows
+- 15-case native eval benchmark; run 1 analyzed; PROC-7..11 fixes
