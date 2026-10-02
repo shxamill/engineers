@@ -20,6 +20,7 @@ graders:
     flags: i
   - type: regex
     name: verified-with-engine
+    arm: with-only
     target: trace
     pattern: "VERDICT: PASS"
   - type: llm

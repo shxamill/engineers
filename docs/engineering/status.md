@@ -1,43 +1,51 @@
 # Engineering Status
 
 ## Now
-- Objective: Documentation rebuild: root README, plugin manual, CONTRIBUTING, records index; audit claims against the implementation and current Claude Code docs
-- Class: MEDIUM · Flags: none (documentation plus three small fixes found by the audit: PROC-14, PROC-15)
-- Phase: F11 verified (links, commands, Mermaid, metrics); committed
+- Objective: Engineering OS V3: audit, research, architecture, and implementation (evidence model, classification checks, task DoR/DoD, release check, telemetry, mutation checks, two-arm benchmark)
+- Class: LARGE · Risk: high · Flags: infra, secrets (CI workflow and the secrets guard change)
+- Skipped: plan_complete (V3 work is tracked as audit findings A-01..A-36 and PROC-16..27 rather than a task table)
+- AC-1: Verification and reviewer verdicts are fresh only at the current source-content fingerprint (verify-hooks `stop v3` cases; mutation `gate-fingerprint`)
+- AC-2: Shell and file-tool writes to evidence, ledger, state, and telemetry are denied; reads are allowed (verify-hooks deny/allow cases)
+- AC-3: Changed paths and new dependencies imply risk flags that must be declared or waived; SMALL+ needs acceptance criteria; MEDIUM+ needs a finished plan (verify-hooks `stop v3` cases)
+- AC-4: Every safety mutation in `mutation-check.mjs` is killed (22/22), and the suites pass under `core.autocrlf=true`
+- AC-5: A two-arm, three-run benchmark is reported per arm without aggregation or projection (ADR-0004)
+- Phase: F11 verification and fresh-context review of the V3 change
 - Current task: none
-- Next actions: owner validates on a real product repository and in a live Windows session; owner decides the license (manifest says MIT, no LICENSE file)
+- Next actions: run the two-arm benchmark (ADR-0004); confirm org-ci on Ubuntu, Windows, and the robustness job; owner validates on a real product repository and a live Windows session
 - Blockers: none
 
 ## Phases
-V2: F0 ✓ audit · F1 ✓ research · F2–F6 ✓ design (ADR-0002) · F7–F9 ✓ build · F10 ✓ verify · F11 ✓ benchmark runs 1–2 + re-run · F16 ✓ retro 0002
+V3: F0 ✓ inspect + baseline (E-1..E-4) · F1 ✓ research ([v3-research](v3-research.md)) · F0 ✓ audit ([v3-audit](v3-audit.md)) · F4 ✓ architecture ([v3-architecture](v3-architecture.md), ADR-0003/0004) · F7–F8 ✓ build · F11 … verify + fresh-context review · benchmark …
 
 ## Checks
-`node plugins/engineering-os/scripts/validate-org.mjs` · `node plugins/engineering-os/scripts/verify-hooks.mjs` (255) · `node plugins/engineering-os/scripts/test-engines.mjs` (46) · `claude plugin validate plugins/engineering-os --strict` · org-ci green on Ubuntu + Windows since `afb6059` (Windows was red from the V2 commit until then; PROC-14). Suites also pass on Node 18.20.8.
+`node plugins/engineering-os/scripts/validate-org.mjs` · `verify-hooks.mjs` (306) · `test-engines.mjs` (89) · `mutation-check.mjs` (22/22 killed) · `claude plugin validate plugins/engineering-os --strict` · suites also pass with `core.autocrlf=true`. org-ci on GitHub: confirm after push (PROC-14).
 
-## Planned (recorded so the README roadmap has a source)
-- Re-benchmark cases 03 and 11 after PROC-13 (v2-run2 notes it is not yet benchmarked).
-- Full benchmark with `runs: 3` per case to measure variance (retro 0002, Open).
-- A no-plugin baseline comparison (`--ablation` not `none`): no result so far shows improvement over plain Claude Code.
+Reviews: this repository's own gate ledger has no reviewer entries for V3. The V3 change was reviewed by an independent fresh-context agent (not the plugin's reviewer agents), and its findings are recorded in the commit history.
+
+## Planned
+- Two-arm benchmark, three runs per case ([ADR-0004](adr/0004-evaluation-model.md)).
+- First tagged release (`v3.0.0`) once CI and the benchmark are reported.
 - License decision (human gate: legal).
-- Exploratory: deterministic checks for risk-flag deliverables, which today are enforced by instructions only.
+- Exploratory: deterministic checks for risk-flag deliverables (still instruction-only).
 
 ## Risks
-- Bash guard is heuristic (variables, aliases, generated scripts can evade it); the native sandbox is the boundary, the guard is defense in depth.
-- Hooks are verified live on Linux and in CI on Windows; not yet in a live Claude Code session on Windows. Current docs: the sandbox is unsupported on native Windows (use WSL2).
-- The benchmark uses Sonnet with 1 run per case; scores have run-to-run variance.
-- Router: in SMALL work a mandatory risk capability can lose the single specialist slot to a trigger match; the orchestrator must cover it (documented in the README).
+- Guards are heuristics running as the same OS user as the agent; evidence protection stops direct writes, not a determined adversary. CI and human review remain the independent checks; the sandbox narrows shell writes (not on native Windows).
+- `risk_paths` patterns can miss unusually named files and can flag harmless ones (which then need a recorded waiver).
+- Hooks are verified in CI on Windows, not in a live Windows session. The sandbox is unsupported on native Windows (use WSL2).
+- Benchmark fixtures are small and the graders are written by this project.
 
 ## Assumptions
 - [ASSUMPTION] Node 18+ is on PATH wherever the plugin runs (hooks and engines need it).
 - [ASSUMPTION] Product repos install the plugin from this marketplace; no OS files are copied into them.
 
 ## Completed (last 10)
-- Documentation rebuild: README (concept → architecture → evidence → limits), plugin operating manual, CONTRIBUTING, docs index; research R-CC-11..17 and R-DOC
-- PROC-14: Windows CI fixed (CRLF-agnostic test); CI verification step added to the contributor rules
-- PROC-15: `worktree.baseRef: "head"` recommended; eng-build handles the default-branch base
-- V2 audit (25 findings) and research log (R-CC/R-AG/R-ORG)
-- Plugin + marketplace packaging; constitution injected by SessionStart/SubagentStart hooks
-- Capability registry (31 capabilities) + router; detect / verify / plan-check engines
-- 16 agents, 24 skills, F0–F16 lifecycle, Stop verification gate with gate ledger
-- Hook suite 255 cases, engine suite 46 cases, CI on Ubuntu + Windows
-- 15-case native eval benchmark; runs 1–2 analyzed; PROC-7..13 fixes
+- V3 research (CC/AG/ORG/SEC, experiments E-1..E-4), audit (A-01..A-36), architecture, ADR-0003/0004, migration guide, CHANGELOG, version 3.0.0
+- Content fingerprint freshness; protected evidence; ledger with agent_id + fingerprint (PROC-16, PROC-17)
+- Registry v2 (tiers, risk_dimensions, gates, risk_paths, reviewer_gate); validator cross-checks (PROC-18)
+- Router: dimensions, mandatory-first staffing, uncovered report (PROC-19)
+- Stop gate: path-implied flags, AC and plan gates (PROC-20); plan DoR/DoD and retry budget (PROC-21)
+- eng-verify schema 2, CI-bypass and supply-chain detectors (PROC-22); eng-release-check (PROC-23)
+- Telemetry + eng-status.mjs (PROC-24); mutation check + autocrlf CI job (PROC-25); handoff TASK and partial-result rule (PROC-26)
+- Eval case 16 (verification evasion); arm markings for two-arm benchmarks
+- Documentation rebuild (V2): README, plugin manual, CONTRIBUTING, records index; PROC-14, PROC-15
+- V2: plugin + marketplace, registry + router, engines, 16 agents, 24 skills, Stop gate, 15-case benchmark (runs 1–2)

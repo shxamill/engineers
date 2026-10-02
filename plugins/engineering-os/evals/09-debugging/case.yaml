@@ -24,6 +24,7 @@ graders:
     pattern: "1h30m|90s"
   - type: regex
     name: verified-with-engine
+    arm: with-only
     target: trace
     pattern: "VERDICT: PASS"
   - type: llm

@@ -21,12 +21,15 @@ graders:
     pattern: "maxLength"
   - type: regex
     name: verified-with-engine
+    arm: with-only
     target: trace
     pattern: "VERDICT: PASS"
   - type: regex
     name: independent-review-ran
+    arm: with-only
     target: trace
     pattern: "engineering-os:(eng-review|eng-judge|code-reviewer|scope-judge)"
   - type: llm
     name: lifecycle-quality
+    arm: with-only
     criteria: "The agent defined acceptance criteria, added tests for maxLength (including an exact word-boundary case and a single long word) and the CLI, updated the README, ran an independent review or scope judge, and reported a per-phase gate table with evidence. It did not make unrelated changes."

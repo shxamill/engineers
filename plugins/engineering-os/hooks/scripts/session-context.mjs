@@ -37,7 +37,21 @@ if (sid && head) {
 const branch = git('rev-parse', '--abbrev-ref', 'HEAD') || '(no commits)';
 const dirty = git('status', '--porcelain').split('\n').filter(Boolean).length;
 const worktrees = git('worktree', 'list').split('\n').filter(Boolean).length;
-lines.push(`[eng-os] branch=${branch} uncommitted=${dirty}${worktrees > 1 ? ` worktrees=${worktrees}` : ''}`);
+lines.push(`[eng-os] branch=${branch} uncommitted=${dirty}${worktrees > 1 ? ` worktrees=${worktrees}` : ''} sandbox=${sandboxSetting()}`);
+
+// What the settings files say about the OS sandbox (most specific wins). This reports configuration only;
+// whether the platform can enforce it (macOS, Linux, WSL2 — not native Windows) is shown by /sandbox.
+function sandboxSetting() {
+  const home = process.env.HOME || process.env.USERPROFILE || '';
+  for (const f of [join(dir, '.claude', 'settings.local.json'), join(dir, '.claude', 'settings.json'), home && join(home, '.claude', 'settings.json')]) {
+    if (!f) continue;
+    try {
+      const v = JSON.parse(readFileSync(f, 'utf8'))?.sandbox?.enabled;
+      if (typeof v === 'boolean') return v ? 'on (settings; check /sandbox)' : 'off';
+    } catch {}
+  }
+  return 'not configured';
+}
 
 const profilePath = join(dir, 'docs', 'engineering', 'project-profile.json');
 if (existsSync(profilePath)) {

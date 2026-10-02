@@ -37,5 +37,6 @@ graders:
     match: not_contains
   - type: regex
     name: verified-with-engine
+    arm: with-only
     target: trace
     pattern: "VERDICT: PASS"

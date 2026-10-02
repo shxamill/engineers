@@ -37,7 +37,13 @@ const PLUGIN_IGNORED = ['hooks', 'mcpServers', 'permissionMode'];
 const MODELS = /^(inherit|sonnet|opus|haiku|fable|claude-[\w.-]+)$/;
 const CLASSES = ['TRIVIAL', 'SMALL', 'MEDIUM', 'LARGE', 'CRITICAL'];
 const DESC_MAX = 200;
+// Always-on budget: every model-invocable skill and agent description is in context each turn (research CC-9).
+const DESC_BUDGET = 5600;
 let descChars = 0;
+// Claude Code silently ignores unknown frontmatter keys (research CC-5), so a typo would drop a bound.
+const AGENT_KEYS = new Set(['name', 'description', 'tools', 'disallowedTools', 'model', 'maxTurns', 'skills', 'effort', 'isolation', 'color', 'background', 'memory', 'omitClaudeMd', 'initialPrompt', 'experimental', ...PLUGIN_IGNORED]);
+const SKILL_KEYS = new Set(['name', 'description', 'when_to_use', 'argument-hint', 'arguments', 'disable-model-invocation', 'user-invocable', 'allowed-tools', 'disallowed-tools', 'model', 'effort', 'context', 'agent', 'background', 'paths', 'shell', 'hooks', 'metadata', 'license', 'compatibility']);
+const GATE_KEYS = new Set(['acceptance_criteria', 'plan_complete']);
 
 // ---------- manifest + marketplace ----------
 const manifest = json(P('.claude-plugin', 'plugin.json'), '.claude-plugin/plugin.json') || {};
@@ -62,6 +68,7 @@ for (const f of ls(P('agents')).filter((f) => f.endsWith('.md'))) {
   const { data, body } = fm;
   const name = f.slice(0, -3);
   if (data.name !== name) err(file, `name must equal filename "${name}"`);
+  for (const k of Object.keys(data)) if (!AGENT_KEYS.has(k)) err(file, `unknown frontmatter key "${k}" (Claude Code ignores it silently)`);
   if (!data.description) err(file, 'description required');
   else if (data.description.length > DESC_MAX) err(file, `description ${data.description.length} chars > ${DESC_MAX}`);
   descChars += String(data.description || '').length;
@@ -91,13 +98,15 @@ for (const d of ls(P('skills'))) {
   if (fm.bad) err(file, `frontmatter: ${fm.bad}`);
   const { data, body } = fm;
   if (data.name !== d) err(file, `name must equal directory "${d}"`);
+  for (const k of Object.keys(data)) if (!SKILL_KEYS.has(k)) err(file, `unknown frontmatter key "${k}" (Claude Code ignores it silently)`);
   if (!data.description) err(file, 'description required');
   else if (data.description.length > DESC_MAX) err(file, `description ${data.description.length} chars > ${DESC_MAX}`);
   const conditional = Array.isArray(data.paths) && data.paths.length > 0;
   if (d.startsWith('standards-')) {
     if (!conditional) err(file, 'standards skills must declare paths (conditional activation)');
     if (data['user-invocable'] !== false) err(file, 'standards skills should set user-invocable: false');
-  } else if (data['disable-model-invocation'] !== true && !conditional) descChars += String(data.description || '').length;
+  }
+  if (data['disable-model-invocation'] !== true) descChars += String(data.description || '').length;
   if (data.context === 'fork') {
     const a = String(data.agent || '');
     if (!a.startsWith(`${NS}:`) || !agents.has(a.slice(NS.length + 1))) err(file, `fork agent must be "${NS}:<existing agent>" (got "${a}")`);
@@ -128,7 +137,7 @@ for (const [event, groups] of Object.entries(hooksJson.hooks || {})) {
   }
 }
 for (const f of ls(P('hooks', 'scripts')).filter((f) => f.endsWith('.mjs'))) {
-  if (f !== 'lib.mjs' && !wired.has(`hooks/scripts/${f}`)) warn(`hooks/scripts/${f}`, 'not wired in hooks.json');
+  if (!['lib.mjs', 'gates.mjs'].includes(f) && !wired.has(`hooks/scripts/${f}`)) warn(`hooks/scripts/${f}`, 'not wired in hooks.json');
 }
 for (const dir of ['hooks/scripts', 'scripts', 'scripts/lib']) for (const f of ls(P(dir)).filter((f) => f.endsWith('.mjs'))) {
   const chk = spawnSync(process.execPath, ['--check', P(dir, f)], { encoding: 'utf8' });
@@ -142,7 +151,18 @@ if (reg) {
   const ids = new Set();
   for (const c of CLASSES) if (!reg.budgets?.[c]) err('routing/capabilities.yaml', `budget for ${c} missing`);
   const used = new Set();
-  const FIELDS = ['id', 'agent', 'group', 'topology', 'purpose', 'triggers', 'risk_triggers', 'classes', 'inputs', 'outputs', 'tools', 'scopes', 'model', 'max_turns', 'parallel', 'depends', 'reviewers', 'security'];
+  const FIELDS = ['id', 'agent', 'group', 'topology', 'purpose', 'triggers', 'risk_triggers', 'classes', 'inputs', 'outputs', 'tools', 'scopes', 'tier', 'max_turns', 'parallel', 'depends', 'reviewers', 'security'];
+  const RW = 'routing/capabilities.yaml';
+  for (const t of ['low', 'medium', 'high']) if (!MODELS.test(String(reg.tiers?.[t] || ''))) err(RW, `tiers.${t} must map to a model alias`);
+  if (!Array.isArray(reg.risk_dimensions) || !reg.risk_dimensions.length) err(RW, 'risk_dimensions must be a non-empty list');
+  for (const [g, classes] of Object.entries(reg.gates || {})) {
+    if (!GATE_KEYS.has(g)) err(RW, `unknown gate "${g}" (known: ${[...GATE_KEYS].join(', ')})`);
+    for (const cls of classes || []) if (!CLASSES.includes(cls)) err(RW, `gate ${g}: bad class "${cls}"`);
+  }
+  for (const [flag, re] of Object.entries(reg.risk_paths || {})) {
+    if (!reg.risk_requirements?.[flag]) err(RW, `risk_paths ${flag} is not a known risk flag`);
+    try { new RegExp(re, 'i'); } catch (e) { err(RW, `risk_paths ${flag}: invalid regex (${e.message})`); }
+  }
   for (const c of reg.capabilities || []) {
     const where = `routing/capabilities.yaml#${c.id}`;
     for (const k of FIELDS) if (c[k] === undefined) err(where, `missing field "${k}"`);
@@ -151,14 +171,25 @@ if (reg) {
     const a = agents.get(c.agent);
     if (!a) { err(where, `agent "${c.agent}" does not exist`); continue; }
     used.add(c.agent);
-    if (c.model !== a.model) err(where, `model ${c.model} ≠ agent ${a.model}`);
+    if (!reg.tiers?.[c.tier]) err(where, `tier "${c.tier}" not in tiers`);
+    else if (reg.tiers[c.tier] !== a.model) err(where, `tier ${c.tier} → ${reg.tiers[c.tier]} ≠ agent model ${a.model}`);
+    // Registry ↔ skill: a reviewer gate names the skill that runs it; a forked skill must use the same agent.
+    if (c.reviewer_gate) {
+      const s = skills.get(c.skill);
+      if (!c.skill || !s) err(where, `reviewer_gate requires an existing skill (got "${c.skill}")`);
+      else if (s.agent && s.agent !== `${NS}:${c.agent}`) err(where, `skill ${c.skill} forks ${s.agent}, but the capability's agent is ${NS}:${c.agent}`);
+    } else if (c.skill !== undefined) err(where, '"skill" is only meaningful with reviewer_gate: true');
     if (c.max_turns !== a.maxTurns) err(where, `max_turns ${c.max_turns} ≠ agent maxTurns ${a.maxTurns}`);
     if ([...c.tools].sort().join() !== [...a.tools].sort().join()) err(where, `tools ≠ agent tools (${a.tools.join(', ')})`);
     if (!['stream', 'enabling', 'platform', 'subsystem'].includes(c.topology)) err(where, `bad topology "${c.topology}"`);
     for (const cls of c.classes || []) if (!CLASSES.includes(cls)) err(where, `bad class "${cls}"`);
   }
   for (const c of reg.capabilities || []) for (const k of ['depends', 'reviewers']) for (const r of c[k] || []) if (!ids.has(r)) err(`routing/capabilities.yaml#${c.id}`, `${k} references unknown "${r}"`);
-  for (const [cls, b] of Object.entries(reg.budgets || {})) for (const r of b.reviewers || []) if (!ids.has(r)) err('routing/capabilities.yaml', `budget ${cls} reviewer "${r}" unknown`);
+  const byId = new Map((reg.capabilities || []).map((c) => [c.id, c]));
+  for (const [cls, b] of Object.entries(reg.budgets || {})) for (const r of b.reviewers || []) {
+    if (!ids.has(r)) err('routing/capabilities.yaml', `budget ${cls} reviewer "${r}" unknown`);
+    else if (!byId.get(r).reviewer_gate) err('routing/capabilities.yaml', `budget ${cls} reviewer "${r}" must be a reviewer_gate capability`);
+  }
   for (const [flag, list] of Object.entries(reg.risk_requirements || {})) for (const r of list) if (!ids.has(r)) err('routing/capabilities.yaml', `risk ${flag} → unknown "${r}"`);
   for (const flag of Object.keys(reg.risk_requirements || {})) if (typeof reg.risk_deliverables?.[flag] !== 'string') err('routing/capabilities.yaml', `risk flag ${flag} has no risk_deliverables entry`);
   for (const flag of Object.keys(reg.risk_deliverables || {})) if (!reg.risk_requirements?.[flag]) err('routing/capabilities.yaml', `risk_deliverables ${flag} is not a known risk flag`);
@@ -188,6 +219,7 @@ if (!constitution) err('constitution.md', 'missing (injected into every session 
 const cLines = constitution.split('\n').length;
 if (cLines > 45) err('constitution.md', `${cLines} lines > 45 (always loaded)`);
 if (constitution.length > 9000) err('constitution.md', 'over 9000 chars (SubagentStart additionalContext limit is 10k)');
+if (descChars > DESC_BUDGET) err('plugin', `always-on descriptions ${descChars} chars > budget ${DESC_BUDGET}; shorten descriptions (check triggering evals) before raising the budget`);
 
 for (const w of warnings) console.log(`WARN  ${w}`);
 for (const e of errors) console.log(`ERROR ${e}`);

@@ -6,10 +6,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parseYaml } from './lib/yaml-lite.mjs';
-import { classify, route, loadRegistry } from './eng-route.mjs';
+import { classify, route, loadRegistry, riskFromDims } from './eng-route.mjs';
 import { detect } from './eng-detect.mjs';
 import { verify } from './eng-verify.mjs';
 import { parsePlan, checkPlan } from './eng-plan-check.mjs';
+import { checkRelease, envPresence } from './eng-release-check.mjs';
+import { metrics } from './eng-status.mjs';
+import { sourceFingerprint } from '../hooks/scripts/lib.mjs';
 
 let count = 0;
 let failures = 0;
@@ -154,6 +157,110 @@ try {
   const bad = checkPlan(parsePlan(header + row('T-1', 'wizardry', 'T-9', 1, 'a/**', 'DOING') + row('T-2', 'backend', 'T-1', 2, 'b/**', 'RUNNING')).tasks, ids);
   expect('plan: unknown capability/dep/state and premature RUNNING', ['unknown capability', 'unknown T-9', 'state "DOING"', 'is RUNNING but dependency'].every((k) => bad.errors.some((e) => e.includes(k))), JSON.stringify(bad.errors));
   expect('plan: missing columns reported', /missing column/.test(parsePlan('| ID | Objective |\n|---|---|\n| T-1 | x |').error || ''));
+
+  // ---------- V3: router (dimensions, required-first staffing, registry-driven reviewers) ----------
+  const dimsRoute = route({ request: 'add login', scope: 'small', dims: { 'security-sensitivity': 'high', 'data-sensitivity': 'medium' }, flags: ['auth'] }, reg);
+  expect('route v3: risk = highest dimension, drivers named', dimsRoute.risk === 'high' && dimsRoute.drivers.join() === 'security-sensitivity', JSON.stringify(dimsRoute));
+  expect('route v3: understated --risk rejected', throws(() => route({ request: 'x', scope: 'small', risk: 'low', dims: { 'blast-radius': 'high' } }, reg)));
+  expect('route v3: unknown dimension rejected', throws(() => riskFromDims({ vibes: 'high' }, null, reg)));
+  expect('route v3: --risk above the dims is kept', riskFromDims({ 'blast-radius': 'low' }, 'medium', reg).risk === 'medium');
+  const aiSmall = route({ request: 'add a react component that shows sentiment from the llm', scope: 'small', dims: { 'external-exposure': 'medium' }, flags: ['ai'] }, reg);
+  expect('route v3: mandatory capability takes the single SMALL slot (A-03)', aiSmall.staffed.length === 1 && aiSmall.staffed[0].id === 'ai-ml', JSON.stringify(aiSmall.staffed));
+  const uiSmall = route({ request: 'add an empty state to the notes list page component', scope: 'small', risk: 'low', flags: ['ui'] }, reg);
+  expect('route v3: mandatory capability not allowed at the class is reported uncovered, not staffed', uiSmall.uncovered.includes('ux') && uiSmall.staffed.every((s) => s.id !== 'ux'), JSON.stringify(uiSmall));
+  expect('route v3: reviewers carry their skill from the registry', dimsRoute.reviewers.find((r) => r.id === 'appsec')?.skill === 'eng-secreview' && dimsRoute.reviewers.find((r) => r.id === 'code-review')?.skill === 'eng-review', JSON.stringify(dimsRoute.reviewers));
+  expect('route v3: reviewer capabilities are never staffed as builders', !route({ request: 'code review security review', scope: 'large', risk: 'high', flags: ['auth', 'pii'] }, reg).staffed.some((s) => reg.capabilities.find((c) => c.id === s.id).reviewer_gate));
+  expect('route v3: model comes from the tier map', dimsRoute.staffed.every((s) => ['haiku', 'sonnet', 'opus'].includes(s.model)));
+  expect('route v3: class gates listed (SMALL: acceptance criteria; MEDIUM: + plan)', dimsRoute.gates.join() === 'acceptance_criteria' && route({ request: 'x', scope: 'medium', risk: 'low' }, reg).gates.join() === 'acceptance_criteria,plan_complete');
+
+  // ---------- V3: plan contract (owner, DoR, DoD, retry budget, V2 compatibility) ----------
+  const h3 = '_Class: SMALL_\n| ID | Objective | Capability | Owner | Depends | Wave | Files | AC | Verifier | Risk | Attempts | Evidence | State |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n';
+  const r3 = (id, cap, owner, ac, attempts, evidence, state, deps = '-', wave = 1, files = `src/${id}/**`) => `| ${id} | do ${id} | ${cap} | ${owner} | ${deps} | ${wave} | ${files} | ${ac} | npm test | low | ${attempts} | ${evidence} | ${state} |\n`;
+  const planRoot = fixture('planroot', { '.eng/evidence/verify-1/summary.json': '{}' });
+  const p3 = (rows) => { const p = parsePlan(h3 + rows); return checkPlan(p.tasks, ids, { registry: reg, root: planRoot, cls: p.cls }); };
+  expect('plan v3: valid V3 table passes without migration warning', (() => { const r = p3(r3('T-1', 'backend', 'engineering-os:backend-engineer', 'AC-1', 1, '.eng/evidence/verify-1/summary.json', 'DONE') + r3('T-2', 'frontend', 'orchestrator', 'AC-2', 0, '-', 'READY', 'T-1', 2)); return r.errors.length === 0 && !r.warnings.some((w) => /V2 plan/.test(w)); })());
+  expect('plan v3: owner must match the capability agent', p3(r3('T-1', 'backend', 'engineering-os:frontend-engineer', 'AC-1', 0, '-', 'READY')).errors.some((e) => /owner .* doesn't match/.test(e)));
+  expect('plan v3: Definition of Ready needs AC ids', p3(r3('T-1', 'backend', 'orchestrator', '-', 0, '-', 'READY')).errors.some((e) => /no acceptance criteria/.test(e)));
+  expect('plan v3: DONE without evidence rejected', p3(r3('T-1', 'backend', 'orchestrator', 'AC-1', 1, '-', 'DONE')).errors.some((e) => /DONE without evidence/.test(e)));
+  expect('plan v3: DONE with a missing evidence path rejected', p3(r3('T-1', 'backend', 'orchestrator', 'AC-1', 1, '.eng/evidence/nope/summary.json', 'DONE')).errors.some((e) => /does not exist/.test(e)));
+  expect('plan v3: attempts over the class retry budget while RUNNING rejected', p3(r3('T-1', 'backend', 'orchestrator', 'AC-1', 3, '-', 'RUNNING')).errors.some((e) => /exceed the retry budget \(2\)/.test(e)));
+  expect('plan v3: over budget but FAILED is allowed', p3(r3('T-1', 'backend', 'orchestrator', 'AC-1', 3, '-', 'FAILED')).errors.length === 0);
+  expect('plan v3: V2 tables still pass, with a migration warning', ok.errors.length === 0 && ok.warnings.some((w) => /V2 plan format/.test(w)));
+
+  // ---------- V3: content fingerprint ----------
+  const fpRepo = fixture('fp', { 'src/a.js': 'a\n', 'README.md': '# r\n', '.gitignore': 'ignored/\n.eng/\n' });
+  initRepo(fpRepo);
+  const f0 = sourceFingerprint(fpRepo);
+  writeFileSync(join(fpRepo, 'src', 'a.js'), 'b\n');
+  const f1 = sourceFingerprint(fpRepo);
+  git(fpRepo, 'commit', '-qam', 'change');
+  const f2 = sourceFingerprint(fpRepo);
+  writeFileSync(join(fpRepo, 'README.md'), '# docs only\n');
+  mkdirSync(join(fpRepo, 'ignored'), { recursive: true });
+  writeFileSync(join(fpRepo, 'ignored', 'x.js'), 'x\n');
+  const f3 = sourceFingerprint(fpRepo);
+  writeFileSync(join(fpRepo, 'src', 'new.js'), 'n\n');
+  const f4 = sourceFingerprint(fpRepo);
+  expect('fingerprint: source edit changes it', f0 && f1 && f0 !== f1, `${f0} ${f1}`);
+  expect('fingerprint: committing the same content does not', f1 === f2, `${f1} ${f2}`);
+  expect('fingerprint: docs and ignored files do not', f2 === f3, `${f2} ${f3}`);
+  expect('fingerprint: an untracked source file does', f3 !== f4);
+  expect('fingerprint: real index untouched', !(git(fpRepo, 'status', '--porcelain').stdout || '').includes('A '), git(fpRepo, 'status', '--porcelain').stdout);
+  expect('fingerprint: null outside a git repo (callers fall back to mtime)', sourceFingerprint(fixture('nogit', { 'a.js': 'x' })) === null);
+
+  // ---------- V3: verifier evidence, CI-bypass and supply-chain detection ----------
+  const v3 = fixture('v3', {
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test', lint: 'node -e "process.exit(0)"' } }, null, 2),
+    'package-lock.json': '{}',
+    'src/a.js': 'export const a = 1;\n',
+    'test/a.test.js': "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\ntest('a', () => assert.equal(1, 1));\n",
+    '.gitignore': '.eng/\n',
+    'docs/engineering/project-profile.json': JSON.stringify({ checks: [{ id: 'test', kind: 'test', cmd: 'node --test', cwd: '.' }], overrides: { notApplicable: { typecheck: 'plain JavaScript, no types' } } }),
+    'jest.config.js': 'module.exports = { coverageThreshold: { global: { lines: 90 } } };\n',
+  });
+  initRepo(v3);
+  s = verify(v3, { level: 'targeted', task: 'T-7' });
+  const latest = JSON.parse(readFileSync(join(v3, '.eng', 'evidence', 'verify-latest.json'), 'utf8'));
+  expect('verify v3: evidence schema 2 bound to the fingerprint', latest.schema === 2 && latest.fingerprint === sourceFingerprint(v3) && latest.task === 'T-7' && /^[0-9a-f]{40}$/.test(latest.commit || ''), JSON.stringify(latest).slice(0, 300));
+  expect('verify v3: every requested kind recorded (never silently omitted)', ['test', 'typecheck', 'lint'].every((k) => latest.checks.some((c) => c.kind === k)), JSON.stringify(latest.checks));
+  expect('verify v3: NOT_APPLICABLE only when declared, with its reason', s.lines.includes('TYPECHECK: NOT_APPLICABLE (plain JavaScript, no types)') && latest.checks.find((c) => c.kind === 'typecheck').status === 'NOT_APPLICABLE', s.lines.join('\n'));
+  expect('verify v3: summary.json in the evidence dir agrees', JSON.parse(readFileSync(join(v3, latest.evidence, 'summary.json'), 'utf8')).fingerprint === latest.fingerprint);
+  const pkg = JSON.parse(readFileSync(join(v3, 'package.json'), 'utf8'));
+  pkg.scripts.test = 'node --test || true';
+  pkg.dependencies = { 'left-pad': '^1.3.0' };
+  writeFileSync(join(v3, 'package.json'), JSON.stringify(pkg, null, 2));
+  writeFileSync(join(v3, 'jest.config.js'), 'module.exports = { coverageThreshold: { global: { lines: 40 } } };\n');
+  mkdirSync(join(v3, '.github', 'workflows'), { recursive: true });
+  writeFileSync(join(v3, '.github', 'workflows', 'ci.yml'), 'on: [push]\njobs:\n  t:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm test\n        continue-on-error: true\n');
+  s = verify(v3, { only: ['lint'] });
+  const sig = JSON.parse(readFileSync(join(v3, '.eng', 'evidence', 'verify-latest.json'), 'utf8')).signals;
+  expect('verify v3: "|| true" on a test command => TESTS-TAMPER FAIL', s.verdict === 'FAIL' && sig.tamper.some((t) => /\|\| true/.test(t)), JSON.stringify(sig.tamper));
+  expect('verify v3: continue-on-error added => TESTS-TAMPER FAIL', sig.tamper.some((t) => /continue-on-error/.test(t)));
+  expect('verify v3: lowered coverage threshold => WARN', sig.warn.some((w) => /coverage threshold lowered .*90 → 40/.test(w)), JSON.stringify(sig.warn));
+  expect('verify v3: unpinned action => SUPPLY-CHAIN WARN', sig.supplyChain.warn.some((w) => /actions\/checkout@v4/.test(w)), JSON.stringify(sig.supplyChain));
+  expect('verify v3: manifest changed without its lockfile => WARN', sig.supplyChain.warn.some((w) => /lockfile/.test(w)));
+  expect('verify v3: new dependency detected for the new-dependency flag', sig.newDependencies.includes('npm:left-pad'), JSON.stringify(sig.newDependencies));
+  writeFileSync(join(v3, '.github', 'workflows', 'pr.yml'), 'on: pull_request_target\njobs:\n  t:\n    permissions: write-all\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n');
+  verify(v3, { only: ['lint'] });
+  const sc = JSON.parse(readFileSync(join(v3, '.eng', 'evidence', 'verify-latest.json'), 'utf8')).signals.supplyChain;
+  expect('verify v3: write-all and pull_request_target + PR-head checkout => SUPPLY-CHAIN FAIL', sc.fail.some((f) => /write-all/.test(f)) && sc.fail.some((f) => /pull_request_target/.test(f)), JSON.stringify(sc));
+  expect('verify v3: SHA-pinned action is not flagged', !sc.warn.some((w) => /3d3c42e/.test(w)));
+
+  // ---------- V3: release readiness ----------
+  const rp = (rows, approval = '<who, when>', target = 'production', post = '') => `# Release Plan — 1.2.0 → ${target}\n_Owner: x · Human approval: ${approval}_\n\n## Readiness checklist (every line needs evidence)\n| Item | Status | Evidence |\n|---|---|---|\n${rows}\n## Post-deploy verification\n| Check | Expected | Actual |\n|---|---|---|\n${post}`;
+  const good = '| Tests green | PASS | CI run 42 |\n| Migrations | N/A | no schema change |\n';
+  expect('release: PASS rows with evidence + named approval => READY', checkRelease(rp(good, 'Sam, 2026-10-02')).ready);
+  expect('release: production without a named approval => NOT_READY', checkRelease(rp(good)).gaps.some((g) => /human approval/.test(g)));
+  expect('release: staging needs no approval', checkRelease(rp(good, '<who, when>', 'staging')).ready);
+  expect('release: empty status or PASS without evidence => gaps', checkRelease(rp('| Tests | PASS | |\n| Monitoring | | |\n', 'Sam')).gaps.length === 2);
+  expect('release: post-deploy stage needs actual values, none failing', checkRelease(rp(good, 'Sam', 'production', '| Smoke | pass | pass |\n| Errors | ≤1% | FAILED 7% |\n'), { stage: 'post-deploy' }).gaps.some((g) => /Errors/.test(g)));
+  const envDir = fixture('envcheck', { '.env': 'API_KEY=sekret-value\nEMPTY=\n', '.env.example': 'ONLY_EXAMPLE=x\n' });
+  const env = envPresence(envDir, ['API_KEY', 'EMPTY', 'ONLY_EXAMPLE']);
+  expect('release: env presence by name, never value; example files ignored', env.map((e) => e.status).join() === 'PRESENT,MISSING,MISSING' && !JSON.stringify(env).includes('sekret'), JSON.stringify(env));
+
+  // ---------- V3: telemetry metrics ----------
+  const mt = metrics([{ event: 'route', class: 'SMALL' }, { event: 'spawn', agent: 'code-reviewer', agent_id: 'a1' }, { event: 'spawn', agent: 'debugger', agent_id: 'a2' }, { event: 'handoff', agent: 'code-reviewer', agent_id: 'a1', status: 'PASS', accepted: true }, { event: 'verify', verdict: 'FAIL', tamper: 1 }, { event: 'gate', result: 'block', missing: ['review'] }, { event: 'guard', decision: 'deny' }]);
+  expect('metrics: spawns per request, active agents, failures, gate reasons', mt.agentsPerRequest === 2 && mt.activeAgents.join() === 'debugger' && mt.verifyFailures === 1 && mt.tamperFindings === 1 && mt.gateBlockReasons.review === 1 && mt.guardDenies === 1, JSON.stringify(mt));
 } finally {
   rmSync(tmp, { recursive: true, force: true });
 }

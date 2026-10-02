@@ -4,9 +4,10 @@
 // A heuristic safety net, not a sandbox. It lexes quotes, escapes, comments, heredocs, chains,
 // pipes, $(...) and backticks (never inside single quotes or quoted-delimiter heredocs), recurses
 // into sh -c / pwsh -Command / cmd /c / eval payloads and xargs, then applies per-segment checks.
-import { readInput, decide, isSecretPath, mentionsSecretPath, findSecret } from './lib.mjs';
+import { readInput, decide, isSecretPath, mentionsSecretPath, findSecret, PROTECTED_STATE, PROTECTED_HOOKS, projectDir, logEvent } from './lib.mjs';
 
 const input = readInput();
+const EVIDENCE_REASON = 'writing Engineering OS evidence/state or running its gate hooks by hand (only eng-verify and the hooks write verify evidence, the gate ledger, .eng/state, and telemetry)';
 const PS = input?.tool_name === 'PowerShell'; // PowerShell: backslash is literal, backtick escapes
 const denyReasons = new Set();
 const askReasons = new Set();
@@ -359,6 +360,13 @@ function analyze(src, depth = 0) {
     }
     if (/^(get-childitem|gci|dir|ls)$/.test(head) && args.some((a) => /^env:\\?$/i.test(a))) askReasons.add('dumping the whole environment (may contain secrets)');
 
+    // Evidence integrity (V3, A-02): verification evidence, the gate ledger, session state, and telemetry
+    // are written only by eng-verify and the hooks. Reading them is fine; redirecting into them, mutating
+    // them, or running the ledger/gate hooks by hand is not.
+    const redirects = [...seg.text.matchAll(/(?:^|[^<\d&])(?:\d|&)?>{1,2}\|?\s*(?:"([^"]+)"|'([^']+)'|([^\s;|&<>()]+))/g)].map((m) => m[1] || m[2] || m[3]);
+    if (redirects.some((r) => PROTECTED_STATE.test(r)) || (!readOnly && !prose && (PROTECTED_STATE.test(seg.text) || PROTECTED_HOOKS.test(seg.text))))
+      denyReasons.add(EVIDENCE_REASON);
+
     if (!readOnly && !prose) {
       activeSegments.push(seg.text);
       if (INTERPRETERS.has(head) && !SHELLS.has(head) && !POWERSHELLS.has(head)) activeSegments.push(`${seg.heredoc}\n${prevPayload}`);
@@ -368,6 +376,7 @@ function analyze(src, depth = 0) {
 
 function checkActive() {
   for (const s of activeSegments) {
+    if (PROTECTED_STATE.test(s) || PROTECTED_HOOKS.test(s)) denyReasons.add(EVIDENCE_REASON); // interpreter payloads
     if (/\b(drop\s+(database|schema|table)|truncate\s+(table\s+)?\w)/i.test(s)) askReasons.add('destructive SQL (DROP/TRUNCATE)');
     if (/\b(terraform|tofu)\b[^\n]*\b(apply|destroy)\b/.test(s) || /\bpulumi\s+(up|destroy)\b/.test(s)) askReasons.add('infrastructure apply/destroy');
     if (/\bkubectl\b[^\n]*\s(delete|drain)\b/.test(s) || /\bhelm\s+(uninstall|delete)\b/.test(s)) askReasons.add('cluster resource deletion');
@@ -400,8 +409,15 @@ try {
   askReasons.add(`guard-bash could not analyze this command (${e?.message || e}); human review required`);
 }
 
-if (denyReasons.size)
+// Telemetry: decision + reason categories only (quoted parts removed); never the command text.
+const logGuard = (decision, reasons) =>
+  logEvent(projectDir(), { event: 'guard', hook: 'guard-bash', decision, reasons: [...reasons].map((r) => r.replace(/"[^"]*"|`[^`]*`/g, '…').slice(0, 120)) });
+if (denyReasons.size) {
+  logGuard('deny', denyReasons);
   decide('deny', `guard-bash: ${[...denyReasons].join('; ')}. Never allowed from an agent; if truly needed, the human must run it manually.`);
-if (askReasons.size)
+}
+if (askReasons.size) {
+  logGuard('ask', askReasons);
   decide('ask', `guard-bash: ${[...askReasons].join('; ')}. Needs explicit human approval (constitution → Human gates). Don't work around it; prefer a safer alternative or ask the user.`);
+}
 process.exit(0);

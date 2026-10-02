@@ -18,8 +18,10 @@ graders:
     path: src/titlecase.js
   - type: regex
     name: verified-with-engine
+    arm: with-only
     target: trace
     pattern: "VERDICT: PASS"
   - type: llm
     name: parallelism-judgment
+    arm: with-only
     criteria: "The orchestrator made an explicit, reasonable parallelization decision: either it did the two small modules itself and explained why delegation was not worth it, or it spawned workers with disjoint file scopes (and worktree isolation if writing concurrently) and verified and integrated their output. Both modules have tests that pass."

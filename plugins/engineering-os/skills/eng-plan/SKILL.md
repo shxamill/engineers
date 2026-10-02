@@ -9,7 +9,9 @@ argument-hint: [scope]
 
 Write `docs/engineering/implementation-plan.md` from `${CLAUDE_PLUGIN_ROOT}/templates/implementation-plan.md`. The task table is the runtime task database (not the chat):
 
-`| ID | Objective | Capability | Owner | Depends | Wave | Files | Verifier | Risk | State |`
+`| ID | Objective | Capability | Owner | Depends | Wave | Files | AC | Verifier | Risk | Attempts | Evidence | State |`
+
+Definition of Ready (checked): capability from the registry (or `orchestrator`); Owner = `engineering-os:<registry agent for that capability>` or `orchestrator`; Files; AC ids (`AC-1, AC-3`); Verifier. Definition of Done (checked): Evidence = the verify run, log path, or commit that proves it (a path must exist); Attempts within the class retry budget (RUNNING over budget → change strategy and reset, eng-debug, or FAILED). Out-of-scope boundaries go in the task's Notes.
 
 Rules:
 - **Vertical slices** that deliver verifiable behavior ("user registration endpoint + persistence + tests"), never layers ("build the backend").

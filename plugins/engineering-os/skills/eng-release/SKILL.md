@@ -19,9 +19,10 @@ Environments: LOCAL → CI → PREVIEW → STAGING → PRODUCTION. Use only thos
    - monitoring and alerts in place
    - rollback defined (and tested for CRITICAL)
    - release notes
-2. **Gate (F13):** dev, preview, and staging deploys proceed. Production deploys, production migrations, DNS, paid resources, public publishing, and announcements need explicit human approval. Present what, risk, rollback, and expected impact, then stop. The guard hooks also prompt for these commands.
+   Then check it deterministically: `node "${CLAUDE_PLUGIN_ROOT}/scripts/eng-release-check.mjs" --target <env> --env NAME1,NAME2` → READY or NOT_READY with gaps. Each row needs `PASS` + evidence or `N/A` + reason; production needs `Human approval: <who>, <when>`. `--env` reports PRESENT/MISSING by name only and never prints values. For meaningful services, fill the SLO table (1–3 SLIs with rollback thresholds).
+2. **Gate (F13):** dev, preview, and staging deploys proceed only with READY. Production deploys, production migrations, DNS, paid resources, public publishing, and announcements need explicit human approval. Present what, risk, rollback, and expected impact, then stop. The guard hooks also prompt for these commands.
 3. **Staged exposure** for risky changes, where supported: feature flag → canary → percentage rollout → full. Each promotion has a criterion (error rate, latency, key journey).
 4. **Deploy** (platform-engineer or directly), following release-plan.md.
-5. **Post-deploy verification (F14):** health/readiness → smoke tests → core user journey → error rate and latency vs baseline → resource health. Store evidence under `.eng/evidence/release-<version>/`.
+5. **Post-deploy verification (F14):** health/readiness → smoke tests → core user journey → error rate and latency vs baseline (SLO table) → resource health. Store evidence under `.eng/evidence/release-<version>/`, fill the Actual column, then `eng-release-check.mjs --stage post-deploy`. Report three things separately: deployment succeeded, system healthy, product outcome (later, eng-outcome).
 6. **Regression beyond threshold → roll back first, debug second** (`/engineering-os:eng-debug`). Incidents above the postmortem threshold (user-visible impact, data risk, or rollback in production) → postmortem from `${CLAUDE_PLUGIN_ROOT}/templates/postmortem.md`.
 7. **Record:** release state in status.md. Report "Code deployed" separately; the outcome is measured later by `/engineering-os:eng-outcome`.
