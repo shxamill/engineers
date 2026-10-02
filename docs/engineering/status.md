@@ -11,7 +11,7 @@
 - AC-5: A two-arm, three-run benchmark is reported per arm without aggregation or projection (ADR-0004)
 - Phase: F11 verification and fresh-context review of the V3 change
 - Current task: none
-- Next actions: re-run the two-arm benchmark after the usage limit resets (run 1 was invalidated: 70/96 runs errored; [v3-run1](benchmarks/v3-run1.md)); retro on the 02/03 reporting findings; confirm org-ci on Ubuntu, Windows, and the robustness job; owner validates on a real product repository and a live Windows session
+- Next actions: retro + PROC on the run-2 findings ([v3-run2](benchmarks/v3-run2.md): root cause buried in the report on 02, UI quality on 10, ~7× cost); confirm org-ci on Ubuntu, Windows, and the robustness job; owner validates on a real product repository and a live Windows session
 - Blockers: none
 
 ## Phases
@@ -23,7 +23,6 @@ V3: F0 ✓ inspect + baseline (E-1..E-4) · F1 ✓ research ([v3-research](v3-re
 Reviews: this repository's own gate ledger has no reviewer entries for V3. The V3 change was reviewed by an independent fresh-context agent (not the plugin's reviewer agents): 5 BLOCKING and 15 SHOULD_FIX findings, all fixed or documented with regression tests ([record](reviews/v3-fresh-review.md), PROC-28).
 
 ## Planned
-- Two-arm benchmark, three runs per case ([ADR-0004](adr/0004-evaluation-model.md)).
 - First tagged release (`v3.0.0`) once CI and the benchmark are reported.
 - License decision (human gate: legal).
 - Exploratory: deterministic checks for risk-flag deliverables (still instruction-only).
