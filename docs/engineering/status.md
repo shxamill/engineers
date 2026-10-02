@@ -18,7 +18,7 @@
 V3: F0 ✓ inspect + baseline (E-1..E-4) · F1 ✓ research ([v3-research](v3-research.md)) · F0 ✓ audit ([v3-audit](v3-audit.md)) · F4 ✓ architecture ([v3-architecture](v3-architecture.md), ADR-0003/0004) · F7–F8 ✓ build · F11 … verify + fresh-context review · benchmark …
 
 ## Checks
-`node plugins/engineering-os/scripts/validate-org.mjs` · `verify-hooks.mjs` (365) · `test-engines.mjs` (103) · `mutation-check.mjs` (33/33 killed) · `claude plugin validate plugins/engineering-os --strict` · suites also pass with `core.autocrlf=true`. org-ci on GitHub: confirm after push (PROC-14).
+`node plugins/engineering-os/scripts/validate-org.mjs` · `verify-hooks.mjs` (365) · `test-engines.mjs` (104) · `mutation-check.mjs` (33/33 killed) · `claude plugin validate plugins/engineering-os --strict` · suites also pass with `core.autocrlf=true`. org-ci on GitHub: confirm after push (PROC-14).
 
 Reviews: this repository's own gate ledger has no reviewer entries for V3. The V3 change was reviewed by an independent fresh-context agent (not the plugin's reviewer agents): 5 BLOCKING and 15 SHOULD_FIX findings, all fixed or documented with regression tests ([record](reviews/v3-fresh-review.md), PROC-28).
 

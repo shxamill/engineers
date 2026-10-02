@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { parseYaml } from './lib/yaml-lite.mjs';
 import { classify, route, loadRegistry, riskFromDims } from './eng-route.mjs';
 import { detect } from './eng-detect.mjs';
-import { verify } from './eng-verify.mjs';
+import { verify, normalize } from './eng-verify.mjs';
 import { parsePlan, checkPlan } from './eng-plan-check.mjs';
 import { checkRelease, envPresence } from './eng-release-check.mjs';
 import { metrics } from './eng-status.mjs';
@@ -308,6 +308,11 @@ try {
   writeFileSync(join(pe, 'README.md'), '# readme\n');
   writeFileSync(join(pe, 'extra.js'), 'export const e = 1;\n');
   s = verify(pe, { only: ['test'], base: peBase });
+  // Windows CI (746cd61): node prints locations as escaped strings and %-encoded file URLs; both must fold to <root>.
+  const winOut = (r) => `not ok 1 - broken\n  location: '${r.replaceAll('\\', '\\\\')}\\\\test\\\\x.test.js:3:1'\n  at TestContext.<anonymous> (file:///${r.replaceAll('\\', '/').replace('~', '%7E')}/test/x.test.js:3:30)\n  duration_ms: 1.23\n`;
+  const nRoot = normalize(winOut('C:\\Users\\RUNNER~1\\Temp\\proj'), 'C:\\Users\\RUNNER~1\\Temp\\proj');
+  const nBase = normalize(winOut('C:\\Users\\RUNNER~1\\Temp\\proj\\.eng\\baseline\\wt-1'), 'C:\\Users\\RUNNER~1\\Temp\\proj\\.eng\\baseline\\wt-1');
+  expect('verify fix: Windows paths (escaped and file:// URL) normalize equally in project and baseline', [...nRoot].every((l) => nBase.has(l)), JSON.stringify([...nRoot].filter((l) => !nBase.has(l))));
   expect('verify fix R-16: node --test duration lines do not hide a pre-existing failure', s.results[0]?.status === 'PRE_EXISTING', JSON.stringify(s.results[0]?.tail));
 
   // ---------- V3: release readiness ----------

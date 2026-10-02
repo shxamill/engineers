@@ -157,7 +157,12 @@ export function findNewDependencies(root, base, files, added, removed) {
   return [...out];
 }
 
-const normalize = (out, root) => new Set(out.replaceAll(root, '<root>').replace(/\x1b\[[0-9;]*m/g, '').split('\n')
+// Output lines with the checkout path, colors, and timings removed, so a run in the baseline worktree compares
+// equal to the same failure in the project. Paths appear raw, with escaped backslashes (Windows, node's inspect),
+// and as file:// URLs with %-encoding (C:/Users/RUNNER%7E1/...), so all of them are folded to forward slashes first.
+const slashes = (s) => s.replace(/\\\\/g, '/').replace(/\\/g, '/');
+export const normalize = (out, root) => new Set(slashes(out).replace(/file:\/\/(\/(?=[A-Za-z]:))?/g, '').replace(/%7E/gi, '~')
+  .replaceAll(slashes(root).replace(/\/+$/, ''), '<root>').replace(/\x1b\[[0-9;]*m/g, '').split('\n')
   .map((l) => l.replace(/\d+(\.\d+)?\s?(ms|s)\b/g, '<t>').replace(/\b(duration_ms|duration):?\s*[\d.]+/g, '$1 <t>').trim())
   .filter((l) => l && !/^(#\s*(duration|start|tests|suites|pass|fail|cancelled|skipped|todo)|ℹ|>|\$ |\(cwd:)/.test(l)));
 
