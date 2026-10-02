@@ -11,7 +11,7 @@
 - AC-5: A two-arm, three-run benchmark is reported per arm without aggregation or projection (ADR-0004)
 - Phase: F11 verification and fresh-context review of the V3 change
 - Current task: none
-- Next actions: run the two-arm benchmark (ADR-0004); confirm org-ci on Ubuntu, Windows, and the robustness job; owner validates on a real product repository and a live Windows session
+- Next actions: re-run the two-arm benchmark after the usage limit resets (run 1 was invalidated: 70/96 runs errored; [v3-run1](benchmarks/v3-run1.md)); retro on the 02/03 reporting findings; confirm org-ci on Ubuntu, Windows, and the robustness job; owner validates on a real product repository and a live Windows session
 - Blockers: none
 
 ## Phases
