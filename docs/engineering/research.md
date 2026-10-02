@@ -1,6 +1,8 @@
 # Research Log
 Reusable findings only. Confidence: **V** = primary source fetched · **S** = secondary or search summary · **M** = background knowledge, not re-verified this session. Re-verify S/M items before citing them as requirements.
 
+V3 research (2026-10-02, CLI 2.1.287) continues in [`v3-research.md`](v3-research.md); where the two disagree, the V3 entry is newer.
+
 ## R-CC: Claude Code platform (2026-10-01, CLI 2.1.286)
 | # | SOURCE | KEY FINDING | IMPLICATION FOR OUR ENGINEERING OS | Conf |
 |---|---|---|---|---|
