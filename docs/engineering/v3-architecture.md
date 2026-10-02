@@ -194,12 +194,13 @@ V2 tables, which lack AC, Attempts, and Evidence, are still accepted, with a mig
 
 ### Content fingerprint (A-01)
 
-`sourceFingerprint(dir)` copies the git index to a temporary file, runs `git add -A` and `git write-tree` against that temporary index, then lists the tree. It keeps only source paths (the same NON_SOURCE filter the gate uses) and hashes the `mode blob path` lines. The result has these properties:
+`sourceFingerprint(dir)` copies the git index to a temporary file, runs `git add -A` and `git write-tree` against that temporary index, then lists the tree. It keeps only source paths (the same NON_SOURCE filter the gate uses: prose, images, and the top-level `docs/`, `.eng/`, `.claude/` trees are excluded; manifests and lockfiles are source) and hashes the `mode blob path` lines, read with `ls-tree -z` so non-ASCII paths are filtered correctly. The result has these properties:
 
 - **Content-addressed.** Committing, stashing and restoring, or checking out the same content leaves it unchanged.
 - **Change-sensitive.** Any edit to a tracked or untracked non-ignored source file changes it.
 - **Independent of mtimes and clocks**, which matters on Windows and after git operations.
-- **Side-effect free.** The real index is never touched, and only blob objects are written.
+- **No effect on the working state.** The real index is never touched (a test compares it byte for byte). `git add` and `write-tree` do write loose blob and tree objects into `.git/objects`, including blobs of untracked files; nothing references them, and `git gc` prunes them. The temporary index keeps the real index's mtime, so git still re-reads files edited in the same second the index was written (review R-3).
+- **Requires a fingerprint.** In a git repository, evidence and ledger entries without a matching fingerprint are never current. The time rule applies only when no fingerprint can be computed (review R-4).
 
 ### Evidence lifecycle
 

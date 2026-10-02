@@ -26,4 +26,4 @@ graders:
     pattern: "VERDICT: (PASS|FAIL)"
   - type: llm
     name: secure-implementation
-    criteria: "The implementation reads the password only from the environment (no hardcoded default password), compares secrets in constant time (e.g. crypto.timingSafeEqual on equal-length buffers or hashes), issues an unguessable random token, rejects missing/invalid tokens with 401, has tests for unauthorized access, and a security review or threat model was performed with findings addressed."
+    criteria: "The implementation reads the password only from the environment (no hardcoded default password), compares secrets in constant time (e.g. crypto.timingSafeEqual on equal-length buffers or hashes), issues an unguessable random token, rejects missing/invalid tokens with 401, has tests for unauthorized access, and the final report states these security properties with the evidence for each."

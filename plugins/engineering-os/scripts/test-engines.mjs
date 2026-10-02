@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Tests for the deterministic engines: yaml-lite, router, project adapter, verifier, plan checker.
 // Run: node scripts/test-engines.mjs
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, unlinkSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -150,7 +150,9 @@ try {
   const ids = reg.capabilities.map((c) => c.id);
   const ok = checkPlan(parsePlan(header + row('T-1', 'backend', '-', 1, 'src/api/**', 'DONE') + row('T-2', 'frontend', 'T-1', 2, 'src/web/**', 'READY') + row('T-3', 'qa', 'T-1', 2, 'e2e/**', 'READY')).tasks, ids);
   expect('plan: valid DAG passes with frontier', ok.errors.length === 0 && ok.frontier.join() === 'T-2,T-3', JSON.stringify(ok));
-  const cyc = checkPlan(parsePlan(header + row('T-1', 'backend', 'T-2', 1, 'a/**', 'READY') + row('T-2', 'backend', 'T-1', 2, 'b/**', 'READY')).tasks, ids);
+  // A missed cycle can recurse without end: catch it so it fails this test instead of crashing the suite.
+  let cyc;
+  try { cyc = checkPlan(parsePlan(header + row('T-1', 'backend', 'T-2', 1, 'a/**', 'READY') + row('T-2', 'backend', 'T-1', 2, 'b/**', 'READY')).tasks, ids); } catch (e) { cyc = { errors: [`threw: ${e.message}`] }; }
   expect('plan: cycle detected', cyc.errors.some((e) => e.startsWith('cycle')), JSON.stringify(cyc.errors));
   const overlapPlan = checkPlan(parsePlan(header + row('T-1', 'backend', '-', 1, 'src/**', 'READY') + row('T-2', 'frontend', '-', 1, 'src/web/**', 'READY')).tasks, ids);
   expect('plan: same-wave file overlap rejected', overlapPlan.errors.some((e) => /share file scope/.test(e)));
@@ -205,7 +207,26 @@ try {
   expect('fingerprint: committing the same content does not', f1 === f2, `${f1} ${f2}`);
   expect('fingerprint: docs and ignored files do not', f2 === f3, `${f2} ${f3}`);
   expect('fingerprint: an untracked source file does', f3 !== f4);
-  expect('fingerprint: real index untouched', !(git(fpRepo, 'status', '--porcelain').stdout || '').includes('A '), git(fpRepo, 'status', '--porcelain').stdout);
+  const indexPath = join(fpRepo, '.git', 'index');
+  const indexBefore = readFileSync(indexPath);
+  sourceFingerprint(fpRepo);
+  expect('fingerprint: real index untouched (byte for byte)', Buffer.compare(indexBefore, readFileSync(indexPath)) === 0);
+  mkdirSync(join(fpRepo, 'docs'), { recursive: true });
+  writeFileSync(join(fpRepo, 'docs', 'résumé.md'), 'é\n');
+  expect('fingerprint fix R-11: a non-ASCII docs path does not change it', sourceFingerprint(fpRepo) === f4);
+  // R-3: an entry stat-cached in the same second the index was written is "racily clean"; git re-checks its
+  // content only if the temp index keeps the real index's mtime. Simulated deterministically with utimes.
+  const rc = fixture('fprace', { 'src/x.js': 'a\n' });
+  initRepo(rc);
+  const T = new Date(Math.floor(Date.now() / 1000) * 1000 - 10_000);
+  utimesSync(join(rc, 'src', 'x.js'), T, T);
+  git(rc, 'update-index', '--refresh');
+  utimesSync(join(rc, '.git', 'index'), T, T);
+  writeFileSync(join(rc, 'src', 'x.js'), 'b\n');
+  utimesSync(join(rc, 'src', 'x.js'), T, T);
+  const rcRef = fixture('fprace-ref', { 'src/x.js': 'b\n' });
+  initRepo(rcRef);
+  expect('fingerprint fix R-3: a same-size edit in the index-write second is seen', sourceFingerprint(rc) === sourceFingerprint(rcRef), `${sourceFingerprint(rc)} ${sourceFingerprint(rcRef)}`);
   expect('fingerprint: null outside a git repo (callers fall back to mtime)', sourceFingerprint(fixture('nogit', { 'a.js': 'x' })) === null);
 
   // ---------- V3: verifier evidence, CI-bypass and supply-chain detection ----------
@@ -246,6 +267,49 @@ try {
   expect('verify v3: write-all and pull_request_target + PR-head checkout => SUPPLY-CHAIN FAIL', sc.fail.some((f) => /write-all/.test(f)) && sc.fail.some((f) => /pull_request_target/.test(f)), JSON.stringify(sc));
   expect('verify v3: SHA-pinned action is not flagged', !sc.warn.some((w) => /3d3c42e/.test(w)));
 
+  // ---------- V3 review fixes: router and release ----------
+  const tf = route({ request: 'rename the login button label', scope: 'trivial', risk: 'low', flags: ['auth'] }, reg);
+  expect('route fix R-18: a risk flag lifts TRIVIAL to SMALL (the gate blocks TRIVIAL with flags)', tf.class === 'SMALL' && tf.reviewers.some((r) => r.id === 'code-review'), JSON.stringify({ c: tf.class, r: tf.reviewers }));
+  expect('route fix R-23: --risk is case-insensitive', route({ request: 'x', scope: 'small', risk: 'HIGH' }, reg).risk === 'high');
+  const mf = route({ request: 'parse uploaded csv files', scope: 'medium', risk: 'medium', flags: ['external-input'] }, reg);
+  expect('route: MEDIUM with a risk flag adds adversarial QA (PROC-6)', mf.reviewers.some((r) => r.id === 'adversarial-qa'), JSON.stringify(mf.reviewers));
+  expect('route: MEDIUM without flags has no adversarial QA', !route({ request: 'x', scope: 'medium', risk: 'low' }, reg).reviewers.some((r) => r.id === 'adversarial-qa'));
+
+  // ---------- V3 review fixes: verifier ----------
+  const rv = fixture('rv', {
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }, null, 2),
+    'src/s.js': 'export const s = (x) => x;\n',
+    'test/s.test.js': "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { s } from '../src/s.js';\ntest('identity', () => assert.equal(s(1), 1));\ntest('other', () => assert.equal(s(2), 2));\n",
+    '.gitignore': '.eng/\n',
+  });
+  initRepo(rv);
+  const startHead = git(rv, 'rev-parse', 'HEAD').stdout.trim();
+  mkdirSync(join(rv, '.eng', 'state'), { recursive: true });
+  writeFileSync(join(rv, '.eng', 'state', 'session-s1.json'), JSON.stringify({ head: startHead, at: Date.now() }));
+  writeFileSync(join(rv, 'test', 's.test.js'), readFileSync(join(rv, 'test', 's.test.js'), 'utf8').replace("test('other'", "test.skip('other'"));
+  git(rv, 'commit', '-qam', 'skip a test');
+  s = verify(rv, { level: 'targeted' });
+  expect('verify fix R-1: on the default branch, committed work is diffed against the session start, not HEAD', s.base === startHead && s.signals.tamper.some((t) => /skip/.test(t)) && s.verdict === 'FAIL', `${s.base} ${JSON.stringify(s.signals?.tamper)}`);
+  const en = fixture('enoent', { 'package.json': JSON.stringify({ scripts: { test: 'node -e 0' } }) });
+  initRepo(en);
+  writeFileSync(join(en, 'package.json'), JSON.stringify({ scripts: { test: 'node -e "console.error(\'Error: ENOENT: no such file or directory, open fixture.json\'); process.exit(1)"' } }));
+  s = verify(en, { only: ['test'] });
+  expect('verify fix R-2: a failing test that mentions ENOENT is FAIL, not NOT_RUN', s.results[0]?.status === 'FAIL' && s.verdict === 'FAIL', JSON.stringify(s.results));
+  s = verify(rv, { level: 'targeted', skip: ['test'] });
+  expect('verify fix R-9: --skip is recorded as partial and reported as skipped', s.partial === true && s.lines.some((l) => /^TESTS: NOT_RUN \(skipped/.test(l)), s.lines.join('\n'));
+  s = verify(`${rv}/`, { only: ['lint'] });
+  expect('verify fix R-15: evidence path stays relative with a trailing slash', !s.evidence.startsWith('/') && s.evidence.startsWith('.eng/evidence/verify-'), s.evidence);
+  const pe = fixture('preexisting-node', {
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }, null, 2),
+    'test/x.test.js': "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\ntest('broken', () => assert.equal(1, 2));\n",
+  });
+  initRepo(pe);
+  const peBase = git(pe, 'rev-parse', 'HEAD').stdout.trim();
+  writeFileSync(join(pe, 'README.md'), '# readme\n');
+  writeFileSync(join(pe, 'extra.js'), 'export const e = 1;\n');
+  s = verify(pe, { only: ['test'], base: peBase });
+  expect('verify fix R-16: node --test duration lines do not hide a pre-existing failure', s.results[0]?.status === 'PRE_EXISTING', JSON.stringify(s.results[0]?.tail));
+
   // ---------- V3: release readiness ----------
   const rp = (rows, approval = '<who, when>', target = 'production', post = '') => `# Release Plan — 1.2.0 → ${target}\n_Owner: x · Human approval: ${approval}_\n\n## Readiness checklist (every line needs evidence)\n| Item | Status | Evidence |\n|---|---|---|\n${rows}\n## Post-deploy verification\n| Check | Expected | Actual |\n|---|---|---|\n${post}`;
   const good = '| Tests green | PASS | CI run 42 |\n| Migrations | N/A | no schema change |\n';
@@ -257,6 +321,11 @@ try {
   const envDir = fixture('envcheck', { '.env': 'API_KEY=sekret-value\nEMPTY=\n', '.env.example': 'ONLY_EXAMPLE=x\n' });
   const env = envPresence(envDir, ['API_KEY', 'EMPTY', 'ONLY_EXAMPLE']);
   expect('release: env presence by name, never value; example files ignored', env.map((e) => e.status).join() === 'PRESENT,MISSING,MISSING' && !JSON.stringify(env).includes('sekret'), JSON.stringify(env));
+  const relOk = (approval) => checkRelease(rp('| Tests | PASS | `npm test` 12 passed |\n', approval)).ready;
+  expect('release fix R-19: TBD / pending / none is not a named approval', !relOk('TBD') && !relOk('pending') && !relOk('none') && relOk('Dana Lee, 2026-10-02'));
+  const postOk = (actual) => checkRelease(rp('| Tests | PASS | `npm test` 12 passed |\n', 'Dana Lee, 2026-10-02', 'production', `| Error rate | < 1% | ${actual} |\n`), { stage: 'post-deploy' }).ready;
+  expect('release fix R-19: "0.1% (errors flat)" is not a failure', postOk('0.1% (errors flat)'));
+  expect('release fix R-19: a failing actual is a gap', !postOk('FAIL: 7% 5xx') && !postOk('regressed to 7%'));
 
   // ---------- V3: telemetry metrics ----------
   const mt = metrics([{ event: 'route', class: 'SMALL' }, { event: 'spawn', agent: 'code-reviewer', agent_id: 'a1' }, { event: 'spawn', agent: 'debugger', agent_id: 'a2' }, { event: 'handoff', agent: 'code-reviewer', agent_id: 'a1', status: 'PASS', accepted: true }, { event: 'verify', verdict: 'FAIL', tamper: 1 }, { event: 'gate', result: 'block', missing: ['review'] }, { event: 'guard', decision: 'deny' }]);

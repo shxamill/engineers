@@ -11,6 +11,7 @@ This directory holds the Engineering OS project's **own** engineering state. It 
 | [`v3-audit.md`](v3-audit.md) | Principal-engineer audit of V2 that drove V3 (36 findings, P0–P2) |
 | [`v3-architecture.md`](v3-architecture.md) | V3 architecture: layers, routing, lifecycle gates, task model, evidence model, security boundary, telemetry |
 | [`v3-migration.md`](v3-migration.md) | Upgrading a product repository from 2.x to 3.0.0 |
+| [`reviews/`](reviews/) | Independent reviews: [V3 fresh-context review](reviews/v3-fresh-review.md) (20 defects, dispositions, regression tests) |
 | [`v2-audit.md`](v2-audit.md) | Principal-engineer audit of V1 that drove V2 (25 findings) |
 | [`research.md`](research.md) | V1–V2 sourced findings on the Claude Code platform, agentic engineering practice, engineering organizations, and documentation practice, with confidence levels (continued in `v3-research.md`) |
 | [`benchmarks/`](benchmarks/) | Benchmark reports: [run 1](benchmarks/v2-run1.md), [run 2 and targeted re-run](benchmarks/v2-run2.md) |

@@ -186,7 +186,7 @@ if (reg) {
   }
   for (const c of reg.capabilities || []) for (const k of ['depends', 'reviewers']) for (const r of c[k] || []) if (!ids.has(r)) err(`routing/capabilities.yaml#${c.id}`, `${k} references unknown "${r}"`);
   const byId = new Map((reg.capabilities || []).map((c) => [c.id, c]));
-  for (const [cls, b] of Object.entries(reg.budgets || {})) for (const r of b.reviewers || []) {
+  for (const [cls, b] of Object.entries(reg.budgets || {})) for (const r of [...(b.reviewers || []), ...(b.reviewers_if_flagged || [])]) {
     if (!ids.has(r)) err('routing/capabilities.yaml', `budget ${cls} reviewer "${r}" unknown`);
     else if (!byId.get(r).reviewer_gate) err('routing/capabilities.yaml', `budget ${cls} reviewer "${r}" must be a reviewer_gate capability`);
   }

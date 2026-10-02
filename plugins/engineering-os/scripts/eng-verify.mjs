@@ -6,8 +6,8 @@
 // Exit 0 = PASS/NO_CHECKS, 1 = FAIL, 2 = usage error.
 // Usage: node eng-verify.mjs [projectDir] [--level targeted|standard|full] [--only k1,k2] [--skip k] [--base ref]
 //        [--task T-n] [--network] [--timeout seconds] [--json]
-import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, symlinkSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync, symlinkSync, rmSync, readdirSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { detect } from './eng-detect.mjs';
@@ -35,14 +35,26 @@ const git = (root, args) => {
   try { return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }); } catch { return null; }
 };
 
+// Base for the diff and the PRE_EXISTING comparison: an explicit --base; else where this branch left the default
+// branch; else (working on the default branch itself) the HEAD the newest session started from, so work already
+// committed in this session is still checked; else HEAD.
 export function resolveBase(root, explicit) {
   if (explicit) return explicit;
-  if (git(root, ['rev-parse', '--verify', 'HEAD']) === null) return null;
+  const head = git(root, ['rev-parse', '--verify', 'HEAD'])?.trim();
+  if (!head) return null;
   for (const ref of ['origin/HEAD', 'origin/main', 'origin/master', 'main', 'master']) {
-    const mb = git(root, ['merge-base', 'HEAD', ref]);
-    const head = git(root, ['rev-parse', 'HEAD']);
-    if (mb && mb.trim() !== head?.trim()) return mb.trim();
+    const mb = git(root, ['merge-base', 'HEAD', ref])?.trim();
+    if (mb && mb !== head) return mb;
   }
+  const stateDir = join(root, '.eng', 'state');
+  let sessions = [];
+  try {
+    sessions = readdirSync(stateDir).filter((f) => /^session-[\w-]+\.json$/.test(f))
+      .map((f) => { try { return { mtime: statSync(join(stateDir, f)).mtimeMs, head: JSON.parse(readFileSync(join(stateDir, f), 'utf8')).head }; } catch { return null; } })
+      .filter((x) => x && /^[0-9a-f]{40}$/.test(x.head || '')).sort((a, b) => b.mtime - a.mtime);
+  } catch {}
+  const start = sessions[0]?.head;
+  if (start && start !== head && git(root, ['merge-base', '--is-ancestor', start, 'HEAD']) !== null) return start;
   return 'HEAD';
 }
 
@@ -146,7 +158,7 @@ export function findNewDependencies(root, base, files, added, removed) {
 }
 
 const normalize = (out, root) => new Set(out.replaceAll(root, '<root>').replace(/\x1b\[[0-9;]*m/g, '').split('\n')
-  .map((l) => l.replace(/\d+(\.\d+)?\s?(ms|s)\b/g, '<t>').trim())
+  .map((l) => l.replace(/\d+(\.\d+)?\s?(ms|s)\b/g, '<t>').replace(/\b(duration_ms|duration):?\s*[\d.]+/g, '$1 <t>').trim())
   .filter((l) => l && !/^(#\s*(duration|start|tests|suites|pass|fail|cancelled|skipped|todo)|ℹ|>|\$ |\(cwd:)/.test(l)));
 
 // For a failing check, re-run it at the base revision in a temporary worktree. If every failure line also
@@ -181,7 +193,9 @@ function runCheck(root, check, evidenceDir, timeoutSec) {
   writeFileSync(log, `$ ${check.cmd}\n(cwd: ${check.cwd || '.'}; exit: ${r.status}; ${ms}ms)\n\n${output}`);
   let status = r.status === 0 ? 'PASS' : 'FAIL';
   if (r.error?.code === 'ETIMEDOUT' || r.signal === 'SIGTERM') status = 'TIMEOUT';
-  else if (r.status === 127 || /command not found|is not recognized as an internal or external command|ENOENT/i.test(output.slice(0, 400)) && r.status !== 0) status = 'NOT_RUN';
+  // NOT_RUN only when the tool itself is missing (shell 127, "command not found", npm/spawn ENOENT), never because a
+  // failing test's own output mentions ENOENT.
+  else if (r.error?.code === 'ENOENT' || r.status === 127 || (r.status !== 0 && /command not found|: not found\s*$|is not recognized as an internal or external command|npm (ERR!|error) (code|enoent) ENOENT|spawn \S+ ENOENT/im.test(output.slice(0, 600)))) status = 'NOT_RUN';
   const tail = output.trim().split('\n').filter(Boolean).slice(-3).join(' | ').slice(0, 240);
   return { ...check, status, exit: r.status, ms, log, tail, output };
 }
@@ -226,7 +240,7 @@ export function verify(root, opts = {}) {
     const rs = results.filter((r) => r.kind === kind);
     if (!kinds.includes(kind)) continue;
     if (!rs.length && notApplicable[kind]) { lines.push(`${LABEL[kind]}: NOT_APPLICABLE (${notApplicable[kind]})`); continue; }
-    if (!rs.length) { lines.push(`${LABEL[kind]}: NOT_RUN (no ${kind} command configured)`); continue; }
+    if (!rs.length) { lines.push(`${LABEL[kind]}: NOT_RUN (${opts.skip?.includes(kind) ? 'skipped with --skip' : `no ${kind} command configured`})`); continue; }
     const worst = ['FAIL', 'TIMEOUT', 'PRE_EXISTING', 'NOT_RUN', 'PASS'].find((s) => rs.some((r) => r.status === s));
     const detail = rs.filter((r) => r.status !== 'PASS').map((r) => `${r.id}: exit ${r.exit}${r.tail ? ` — ${r.tail}` : ''}`).join('; ');
     lines.push(`${LABEL[kind]}: ${worst} (${rs.map((r) => `\`${r.cmd}\` ${r.ms}ms`).join(', ')})${detail ? ` → ${detail}` : ''}`);
@@ -249,17 +263,18 @@ export function verify(root, opts = {}) {
   const verdict = failed ? 'FAIL' : ran === 0 ? 'NO_CHECKS' : 'PASS';
   const pre = results.filter((r) => r.status === 'PRE_EXISTING').map((r) => r.id);
   lines.push(`VERDICT: ${verdict}${pre.length ? ` (pre-existing failures, report but don't fix out of scope: ${pre.join(', ')})` : ''}${skipped.length ? ` (skipped: ${skipped.join(', ')})` : ''}`);
-  const rel = (p) => p.replace(`${root}/`, '').replace(`${root}\\`, '').replace(/\\/g, '/');
+  const rel = (p) => relative(root, p).replace(/\\/g, '/');
   lines.push(`EVIDENCE: ${rel(evidenceDir)} · checks from ${source}`);
   const commit = (git(root, ['rev-parse', 'HEAD']) || '').trim() || null;
   // Evidence schema 2: bound to the content fingerprint; one record per check, never silently omitted.
   const checkRecords = [
     ...results.map((r) => ({ name: r.id, kind: r.kind, status: r.status, command: r.cmd, durationMs: r.ms, evidence: rel(r.log) })),
-    ...kinds.filter((k) => k !== 'secrets' && !results.some((r) => r.kind === k)).map((k) => ({ name: k, kind: k, status: notApplicable[k] ? 'NOT_APPLICABLE' : 'NOT_RUN', command: null, reason: notApplicable[k] || `no ${k} command configured` })),
+    ...kinds.filter((k) => k !== 'secrets' && !results.some((r) => r.kind === k)).map((k) => ({ name: k, kind: k, status: notApplicable[k] ? 'NOT_APPLICABLE' : 'NOT_RUN', command: null, reason: notApplicable[k] || (opts.skip?.includes(k) ? 'skipped with --skip' : `no ${k} command configured`) })),
   ];
   const summary = {
+    // partial: a subset of the level's checks ran (--only/--skip); the completion gate does not accept it.
     schema: 2, task: opts.task || null, commit, fingerprint, timestamp: new Date().toISOString(), at: new Date().toISOString(),
-    level, base, verdict, checks: checkRecords, lines, evidence: rel(evidenceDir),
+    level, partial: Boolean(opts.only?.length || opts.skip?.length), base, verdict, checks: checkRecords, lines, evidence: rel(evidenceDir),
     signals: diff ? { tamper: diff.tamper, warn: diff.warn, secrets: diff.secrets, supplyChain: diff.supply, newDependencies: diff.newDependencies, files: diff.files.length, linesAdded: diff.linesAdded, linesRemoved: diff.linesRemoved } : null,
     results: results.map(({ log, ...r }) => ({ ...r, log })),
   };

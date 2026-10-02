@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Table-driven tests for the plugin hooks. Run: node scripts/verify-hooks.mjs [--timings]
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, utimesSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, utimesSync, appendFileSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -63,6 +63,18 @@ const BASH = {
     'grep -c PASS .eng/evidence/gates.jsonl',
     'ls .eng/evidence && git status',
     'echo "see verify-latest.json for details"',
+    // Review fixes (R-8): reading evidence through an interpreter, cd into it, and working on the hook sources
+    // (this repository dogfoods the plugin) are not writes.
+    'python3 -c "import json; print(json.load(open(\'.eng/evidence/verify-latest.json\'))[\'verdict\'])"',
+    'node -e "console.log(require(\'./.eng/evidence/verify-latest.json\').verdict)"',
+    'cd .eng/evidence/verify-2026-10-02T10-00-00-000Z/ && tail test.log',
+    'git add plugins/engineering-os/hooks/scripts/stop-verify.mjs',
+    'git checkout -- plugins/engineering-os/hooks/scripts/check-handoff.mjs',
+    'node --check plugins/engineering-os/hooks/scripts/check-handoff.mjs',
+    'cp plugins/engineering-os/hooks/scripts/stop-verify.mjs /tmp/sv.mjs',
+    'npx prettier --write plugins/engineering-os/hooks/scripts/check-handoff.mjs',
+    'rm -f build/*.js && npm run build',
+    'cp -r .eng/evidence/verify-2026-10-02T10-00-00-000Z /tmp/evidence-backup',
     'git status',
     'git diff HEAD~1 --stat',
     'git push -u origin claude/feature',
@@ -121,6 +133,8 @@ const BASH = {
     'curl -s https://example.com/#section -o page.html',
   ],
   ask: [
+    // R-17: the profile defines what "verified" runs and can disable the completion gate.
+    'echo \'{"stopGate": false}\' > docs/engineering/project-profile.json',
     'git push --force origin main',
     'git push -f origin feat',
     'git push -uf origin main',
@@ -210,6 +224,28 @@ const BASH = {
     'sed -i s/FAIL/PASS/ .eng/evidence/verify-2026/summary.json',
     'cat x | tee -a .eng/telemetry.jsonl',
     'python3 - <<EOF\nopen(".eng/evidence/verify-latest.json","w").write("{}")\nEOF',
+    // Review fixes (R-6, R-5): quoting, globs, variables, cd, write flags of read-only tools, string concatenation.
+    'echo x >> .eng/evidence/gates.json""l',
+    "echo x >> .eng/evidence/'gates'.jsonl",
+    'echo x >> .eng/evidence/gate?.jsonl',
+    'F=.eng/evidence/gates.jsonl; echo x >> $F',
+    'F=.eng/evidence/gates.jsonl && cat f | tee -a "${F}"',
+    'cd .eng && echo \'{"head":"abc"}\' > state/session-s1.json',
+    'cd .eng/evidence && echo x >> gates.jsonl',
+    'sort -o .eng/evidence/gates.jsonl f',
+    'uniq f .eng/evidence/gates.jsonl',
+    "sed -n 'w .eng/evidence/gates.jsonl' f",
+    'find . -name x -fprint .eng/evidence/gates.jsonl',
+    'git diff --output=.eng/evidence/verify-latest.json',
+    'xxd -r f .eng/evidence/gates.jsonl',
+    "awk -v f=.eng/evidence/gates.jsonl '{print > f}' x",
+    'python3 -c "open(\'.eng/evidence/gat\'+\'es.jsonl\',\'a\').write(\'x\')"',
+    'node -e "require(\'fs\').appendFileSync(\'.eng/evidence/gat\'+\'es.jsonl\',\'x\')"',
+    'H=check-handoff; node hooks/scripts/$H.mjs < in.json',
+    'node hooks/scripts/check-handoff.mj""s < in.json',
+    './hooks/scripts/stop-verify.mjs < in.json',
+    'cp -t .eng/evidence/ /tmp/gates.jsonl',
+    'mv .eng/evidence/gates.jsonl /tmp/old.jsonl',
     // Catastrophic: found untested by the V3 mutation check (guard-catastrophic survived).
     ':(){ :|:& };:',
     'bash -c ":(){ :|:& };:"',
@@ -271,6 +307,7 @@ const POWERSHELL = {
   deny: [
     'Set-Content .eng\\evidence\\gates.jsonl \'{"status":"PASS"}\'',
     'Add-Content -Path .eng\\evidence\\verify-latest.json -Value x',
+    '$p=".eng\\evidence\\gates.json"+"l"; Add-Content $p x',
     'Remove-Item -Recurse -Force C:\\',
     'Remove-Item -Recurse -Force C:\\Users\\alice',
     'Remove-Item -Path $env:USERPROFILE -Recurse -Force',
@@ -328,11 +365,28 @@ const SECRETS = [
   ['write telemetry', { tool_name: 'Write', tool_input: { file_path: '/p/.eng/telemetry.jsonl', content: '{}' } }, 'deny'],
   ['read verify-latest', { tool_name: 'Read', tool_input: { file_path: '/p/.eng/evidence/verify-latest.json' } }, 'allow'],
   ['write scratch log in evidence', { tool_name: 'Write', tool_input: { file_path: '/p/.eng/evidence/debug-notes.log', content: 'x' } }, 'allow'],
+  // Review fixes (R-7, R-17): unnormalized paths and the project profile.
+  ['write state via ./', { tool_name: 'Write', tool_input: { file_path: '/p/.eng/./state/x.json', content: '{}' } }, 'deny'],
+  ['write summary via //', { tool_name: 'Write', tool_input: { file_path: '/p/.eng//evidence/verify-1/summary.json', content: '{}' } }, 'deny'],
+  ['write state via ..', { tool_name: 'Write', tool_input: { file_path: '/p/.eng/statex/../state/x.json', content: '{}' } }, 'deny'],
+  ['edit the project profile', { tool_name: 'Edit', tool_input: { file_path: '/p/docs/engineering/project-profile.json', old_string: 'true', new_string: 'false' } }, 'ask'],
+  ['read the project profile', { tool_name: 'Read', tool_input: { file_path: '/p/docs/engineering/project-profile.json' } }, 'allow'],
 ];
 for (const [name, input, want] of SECRETS) {
   const r = run('guard-secrets.mjs', input);
   const got = decisionOf(r);
   expect(`secrets: ${name}`, got === want, `got=${got} want=${want} ${r.stdout}${r.stderr}`.trim());
+}
+{
+  // R-7: a symlink alias of .eng (created with an allowed `ln -s`) must not bypass the evidence guard.
+  const alias = join(SCRATCH, 'alias-proj');
+  mkdirSync(join(alias, '.eng', 'state'), { recursive: true });
+  let linked = false;
+  try { symlinkSync(join(alias, '.eng'), join(alias, 'e'), 'junction'); linked = true; } catch {}
+  if (linked) {
+    const r = run('guard-secrets.mjs', { tool_name: 'Write', tool_input: { file_path: join(alias, 'e', 'state', 'session-x.json'), content: '{}' } });
+    expect('secrets: write through a symlink alias of .eng', decisionOf(r) === 'deny', `${r.stdout}${r.stderr}`);
+  }
 }
 
 // ---------- check-handoff ----------
@@ -401,6 +455,15 @@ try {
   writeFileSync(join(repo, '.gitignore'), '.eng/\n');
   g('add', '-A'); g('commit', '-qm', 'base');
   const stop = (extra = {}) => run('stop-verify.mjs', { hook_event_name: 'Stop', ...extra }, { CLAUDE_PROJECT_DIR: repo });
+  // What eng-verify writes (schema 2) at the current content of `dir`; `extra` overrides fields.
+  const evidenceIn = (dir, verdict = 'PASS', extra = {}, n = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`) => {
+    const rel = `.eng/evidence/verify-${n}`;
+    const doc = { schema: 2, verdict, level: 'full', fingerprint: sourceFingerprint(dir), evidence: rel, timestamp: new Date().toISOString(), signals: {}, ...extra };
+    mkdirSync(join(dir, rel), { recursive: true });
+    writeFileSync(join(dir, rel, 'summary.json'), JSON.stringify(doc));
+    writeFileSync(join(dir, '.eng', 'evidence', 'verify-latest.json'), JSON.stringify(doc));
+    return rel;
+  };
   expect('stop: clean tree passes', stop().code === 0);
   mkdirSync(join(repo, 'docs'), { recursive: true });
   writeFileSync(join(repo, 'docs', 'notes.md'), 'doc only\n');
@@ -410,14 +473,16 @@ try {
   expect('stop: unverified source change blocks once', blocked.code === 2 && /eng-verify/.test(blocked.stderr), blocked.stderr);
   expect('stop: stop_hook_active never loops', stop({ stop_hook_active: true }).code === 0);
   mkdirSync(join(repo, '.eng', 'evidence'), { recursive: true });
-  writeFileSync(join(repo, '.eng', 'evidence', 'verify-latest.json'), JSON.stringify({ verdict: 'FAIL' }));
-  expect('stop: fresh evidence (even FAIL) satisfies the gate', stop().code === 0);
+  writeFileSync(join(repo, '.eng', 'evidence', 'verify-latest.json'), JSON.stringify({ verdict: 'PASS' }));
+  expect('stop: unfingerprinted (V2) evidence is never current in a git repo (R-4)', /no evidence for the current content/.test(stop().stderr), stop().stderr);
+  evidenceIn(repo, 'FAIL');
+  expect('stop: fresh evidence (even FAIL) satisfies the gate', stop().code === 0, stop().stderr);
   await new Promise((r) => setTimeout(r, 20));
   writeFileSync(join(repo, 'src', 'b.js'), 'export const b = 1;\n');
   expect('stop: change after evidence blocks again', stop().code === 2);
   // Commits made during the session must not hide changes from the gate.
   const sess = { session_id: 'sess-1' };
-  writeFileSync(join(repo, '.eng', 'evidence', 'verify-latest.json'), JSON.stringify({ verdict: 'PASS' }));
+  evidenceIn(repo);
   g('add', '-A'); g('commit', '-qm', 'pre-session work');
   const sc2 = run('session-context.mjs', sess, { CLAUDE_PROJECT_DIR: repo });
   expect('session: records session start HEAD', sc2.code === 0 && existsSync(join(repo, '.eng', 'state', 'session-sess-1.json')));
@@ -425,14 +490,13 @@ try {
   writeFileSync(join(repo, 'src', 'c.js'), 'export const c = 1;\n');
   g('add', '-A'); g('commit', '-qm', 'work committed in session');
   expect('stop: committed-but-unverified work still blocks', stop(sess).code === 2);
-  writeFileSync(join(repo, '.eng', 'evidence', 'verify-latest.json'), JSON.stringify({ verdict: 'PASS' }));
+  evidenceIn(repo);
   expect('stop: verified committed TRIVIAL work passes', stop(sess).code === 0, stop(sess).stderr);
   writeFileSync(join(repo, 'docs', 'engineering', 'status.md'), '# Status\n## Now\n- Objective: none (idle)\n');
   const noClass = stop(sess);
   expect('stop: source changes without a declared class block', noClass.code === 2 && /Class:/.test(noClass.stderr), noClass.stderr);
 
   // Required reviewers by declared class/flags, via the gate ledger written by check-handoff.
-  // (V2-format evidence above has no fingerprint, so verification freshness uses the mtime fallback.)
   mkdirSync(join(repo, 'docs', 'engineering'), { recursive: true });
   const setNow = (lines, dir = repo) => writeFileSync(join(dir, 'docs', 'engineering', 'status.md'), `# Status\n## Now\n${lines}\n## Active work\n`);
   const AC = '- AC-1: c() returns 1 for every caller';
@@ -449,6 +513,8 @@ try {
   sv = stop(sess);
   expect('stop: MEDIUM+auth also requires scope judge and security review', sv.code === 2 && /scope-judge/.test(sv.stderr) && /security-engineer/.test(sv.stderr), sv.stderr);
   handoff('scope-judge', 'PASS'); handoff('security-engineer', 'PASS');
+  expect('stop: MEDIUM with a flag also requires adversarial QA (PROC-6)', /adversarial-qa review/.test(stop(sess).stderr), stop(sess).stderr);
+  handoff('adversarial-qa', 'PASS');
   expect('stop: all required gates PASS → stop allowed', stop(sess).code === 0, stop(sess).stderr);
   setNow('- Class: TRIVIAL');
   expect('stop: TRIVIAL needs only verification', stop(sess).code === 0);
@@ -485,16 +551,7 @@ try {
   const vs = { session_id: 'v3-sess' };
   run('session-context.mjs', vs, { CLAUDE_PROJECT_DIR: v });
   const stopV = () => run('stop-verify.mjs', { hook_event_name: 'Stop', ...vs }, { CLAUDE_PROJECT_DIR: v });
-  // What eng-verify writes (schema 2), at the current content; `n` names the evidence run directory.
-  const writeEvidence = (verdict = 'PASS', signals = {}, n = String(Date.now())) => {
-    const fp = sourceFingerprint(v);
-    const rel = `.eng/evidence/verify-${n}`;
-    const doc = { schema: 2, verdict, fingerprint: fp, evidence: rel, timestamp: new Date().toISOString(), signals };
-    mkdirSync(join(v, rel), { recursive: true });
-    writeFileSync(join(v, rel, 'summary.json'), JSON.stringify(doc));
-    writeFileSync(join(v, '.eng', 'evidence', 'verify-latest.json'), JSON.stringify(doc));
-    return rel;
-  };
+  const writeEvidence = (verdict = 'PASS', signals = {}, n) => evidenceIn(v, verdict, { signals }, n);
   writeFileSync(join(v, 'src', 'a.js'), 'export const a = 2;\n');
   setNow('- Class: TRIVIAL · Flags: none', v);
   mkdirSync(join(v, '.eng', 'evidence'), { recursive: true });
@@ -520,7 +577,7 @@ try {
   expect('handoff v3: ledger entry carries agent_id and fingerprint', (() => {
     handoff('code-reviewer', 'PASS', v, { agent_id: 'agent-123' });
     const last = readFileSync(join(v, '.eng', 'evidence', 'gates.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)).at(-1);
-    return last.agent_id === 'agent-123' && last.fingerprint === sourceFingerprint(v);
+    return last.agent_id === 'agent-123' && Boolean(last.fingerprint) && last.fingerprint === sourceFingerprint(v);
   })());
   expect('stop v3: reviewer PASS at the current content passes', stopV().code === 0, stopV().stderr);
   writeFileSync(join(v, 'src', 'a.js'), 'export const a = 4;\n');
@@ -572,6 +629,90 @@ try {
   const tel = readFileSync(join(v, '.eng', 'telemetry.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   expect('telemetry: gate results recorded with their missing keys', tel.some((e) => e.event === 'gate' && e.result === 'block' && e.missing.includes('plan_complete')) && tel.at(-1).event === 'gate' && tel.at(-1).result === 'pass', JSON.stringify(tel.slice(-2)));
   expect('telemetry: handoffs recorded', tel.some((e) => e.event === 'handoff' && e.agent === 'code-reviewer' && e.accepted === true));
+
+  // ---------- V3 review fixes: gate ----------
+  // R-4: a forged ledger line without a fingerprint, or one dated in the future, never counts.
+  setNow(`- Class: SMALL · Flags: none\n- Waived: auth (fixture)\n${AC}`, v);
+  writeEvidence();
+  handoff('code-reviewer', 'CHANGES_REQUIRED', v);
+  appendFileSync(join(v, '.eng', 'evidence', 'gates.jsonl'), `${JSON.stringify({ agent: 'code-reviewer', status: 'PASS', at: 99999999999999 })}\n`);
+  sv = stopV();
+  expect('stop fix R-4: a forged PASS without a fingerprint does not outrank a real CHANGES_REQUIRED', sv.code === 2 && /returned CHANGES_REQUIRED/.test(sv.stderr), sv.stderr);
+  appendFileSync(join(v, '.eng', 'evidence', 'gates.jsonl'), `${JSON.stringify({ agent: 'code-reviewer', status: 'PASS', at: Date.now() + 3_600_000, fingerprint: sourceFingerprint(v) })}\n`);
+  expect('stop fix R-4: a future-dated ledger entry is ignored', /returned CHANGES_REQUIRED/.test(stopV().stderr), stopV().stderr);
+  handoff('code-reviewer', 'PASS', v);
+  // R-9: the evidence must come from a full run at the class's verify level.
+  evidenceIn(v, 'PASS', { level: 'targeted' });
+  sv = stopV();
+  expect('stop fix R-9: SMALL verified only at targeted level blocks', sv.code === 2 && /standard/.test(sv.stderr), sv.stderr);
+  evidenceIn(v, 'PASS', { partial: true });
+  sv = stopV();
+  expect('stop fix R-9: a partial run (--only/--skip) does not satisfy the gate', sv.code === 2 && /partial/.test(sv.stderr), sv.stderr);
+  evidenceIn(v);
+  expect('stop fix: SMALL with full evidence and a fresh review passes', stopV().code === 0, stopV().stderr);
+
+  // R-10..R-12, R-23 and R-5 in a repo whose requirements and plan predate the session.
+  const w = join(tmp, 'v4');
+  mkdirSync(join(w, 'src', 'services'), { recursive: true });
+  mkdirSync(join(w, 'docs', 'engineering'), { recursive: true });
+  const gw = (...a) => spawnSync('git', a, { cwd: w, encoding: 'utf8' });
+  gw('init', '-q', '-b', 'main'); gw('config', 'user.email', 't@e.st'); gw('config', 'user.name', 't');
+  writeFileSync(join(w, '.gitignore'), '.eng/\n');
+  writeFileSync(join(w, 'src', 'a.js'), 'export const a = 1;\n');
+  writeFileSync(join(w, 'docs', 'engineering', 'requirements.md'), '| AC | Criterion |\n|---|---|\n| AC-1 | an old objective: exports return the configured value |\n');
+  writeFileSync(join(w, 'docs', 'engineering', 'implementation-plan.md'), planHead);
+  gw('add', '-A'); gw('commit', '-qm', 'base');
+  const ws = { session_id: 'v4-sess' };
+  run('session-context.mjs', ws, { CLAUDE_PROJECT_DIR: w });
+  const stopW = () => run('stop-verify.mjs', { hook_event_name: 'Stop', ...ws }, { CLAUDE_PROJECT_DIR: w });
+  writeFileSync(join(w, 'src', 'a.js'), 'export const a = 2;\n');
+  mkdirSync(join(w, '.eng', 'evidence'), { recursive: true });
+  evidenceIn(w);
+  handoff('code-reviewer', 'PASS', w);
+  setNow('- Class: SMALL · Flags: none', w);
+  expect('stop fix R-10: acceptance criteria from an earlier objective do not count', /acceptance criteria/.test(stopW().stderr), stopW().stderr);
+  setNow('- Class: SMALL · Flags: none\n- Acceptance criteria: AC-1 in docs/engineering/requirements.md', w);
+  expect('stop fix R-10: criteria referenced from the current Now section count', !/acceptance criteria/.test(stopW().stderr), stopW().stderr);
+  setNow(`- Class: MEDIUM · Flags: none\n${AC}`, w);
+  handoff('scope-judge', 'PASS', w);
+  expect('stop fix R-10: a plan with no tasks does not satisfy plan_complete', /plan: .*no tasks/.test(stopW().stderr), stopW().stderr);
+  setNow(`- Class: SMALL · Flags: none\n${AC}`, w);
+  writeFileSync(join(w, 'src', 'services', 'AuthService.ts'), 'export class AuthService {}\n');
+  evidenceIn(w); handoff('code-reviewer', 'PASS', w);
+  expect('stop fix R-12: camelCase AuthService implies the auth flag', /implies `auth` \(src\/services\/AuthService\.ts\)/.test(stopW().stderr), stopW().stderr);
+  setNow(`- Class: SMALL · Flags: none\n- Not waived: auth (this line is a note, not a waiver)\n${AC}`, w);
+  expect('stop fix R-23: only a line starting with "Waived:" waives a flag', /implies `auth`/.test(stopW().stderr), stopW().stderr);
+  rmSync(join(w, 'src', 'services', 'AuthService.ts'));
+  gw('add', '-A'); gw('commit', '-qm', 'a=2');
+  setNow(`- Class: SMALL · Flags: none\n${AC}`, w);
+  evidenceIn(w); handoff('code-reviewer', 'PASS', w);
+  expect('stop fix: verified and reviewed committed work passes', stopW().code === 0, stopW().stderr);
+  writeFileSync(join(w, 'requirements.txt'), 'requests==2.32.0\n');
+  expect('stop fix R-11: a requirements.txt change is a source change', /no evidence for the current content/.test(stopW().stderr), stopW().stderr);
+  rmSync(join(w, 'requirements.txt'));
+  expect('stop fix: removing it restores the verified content', stopW().code === 0, stopW().stderr);
+  gw('checkout', '-q', '-b', 'feat/x');
+  writeFileSync(join(w, 'src', 'b.js'), 'export const b = 1;\n');
+  gw('add', '-A'); gw('commit', '-qm', 'unverified work on a branch');
+  gw('checkout', '-q', 'main');
+  sv = stopW();
+  expect('stop fix R-5: work committed on another branch this session still triggers the gate', sv.code === 2 && /feat\/x/.test(sv.stderr), sv.stderr);
+  // R-13: after a block, the re-sent handoff (stop_hook_active) is still recorded, but never blocked again.
+  const ledgerW = () => (existsSync(join(w, '.eng', 'evidence', 'gates.jsonl')) ? readFileSync(join(w, '.eng', 'evidence', 'gates.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l)) : []);
+  let r13 = run('check-handoff.mjs', { hook_event_name: 'SubagentStop', agent_type: 'engineering-os:debugger', agent_id: 'retry-1', stop_hook_active: true, last_assistant_message: 'STATUS: PASS\nTASK: T-1\nEVIDENCE: `npm test` → 4 passed' }, { CLAUDE_PROJECT_DIR: w });
+  expect('handoff fix R-13: a valid handoff re-sent after a block is recorded', r13.code === 0 && ledgerW().some((e) => e.agent_id === 'retry-1'), JSON.stringify(ledgerW().slice(-1)));
+  r13 = run('check-handoff.mjs', { hook_event_name: 'SubagentStop', agent_type: 'engineering-os:debugger', agent_id: 'retry-2', stop_hook_active: true, last_assistant_message: 'still no handoff' }, { CLAUDE_PROJECT_DIR: w });
+  expect('handoff fix R-13: an invalid re-send is neither blocked again nor recorded', r13.code === 0 && !ledgerW().some((e) => e.agent_id === 'retry-2'));
+  // R-14: only the plugin's own (namespaced) agents write the ledger; a bare same-named agent does not.
+  run('check-handoff.mjs', { hook_event_name: 'SubagentStop', agent_type: 'code-reviewer', agent_id: 'bare-1', last_assistant_message: 'STATUS: PASS\nTASK: review\nEVIDENCE: `npm test` → 4 passed' }, { CLAUDE_PROJECT_DIR: w });
+  expect('handoff fix R-14: a bare (non-plugin) code-reviewer PASS is not recorded', !ledgerW().some((e) => e.agent_id === 'bare-1'));
+  // PROC-6 in the registry: MEDIUM work with a risk flag also needs adversarial QA.
+  gw('checkout', '-q', 'feat/x');
+  setNow(`- Class: MEDIUM · Flags: external-input\n${AC}\n- Skipped: plan_complete (fixture)`, w);
+  evidenceIn(w);
+  for (const a of ['code-reviewer', 'scope-judge', 'security-engineer']) handoff(a, 'PASS', w);
+  sv = stopW();
+  expect('stop fix: MEDIUM with a risk flag requires adversarial QA', sv.code === 2 && /adversarial-qa review/.test(sv.stderr), sv.stderr);
 
   // Session snapshot reports the sandbox setting; SubagentStart records the spawn.
   mkdirSync(join(v, '.claude'), { recursive: true });

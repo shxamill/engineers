@@ -50,9 +50,10 @@ const matches = (text, trigger) => new RegExp(`(^|[^a-z0-9])${escape(trigger.toL
 export const modelOf = (registry, cap) => registry.tiers?.[cap.tier] ?? cap.tier;
 
 export function route({ request = '', scope, risk, dims = {}, flags = [] }, registry = loadRegistry()) {
-  const { risk: finalRisk, drivers } = riskFromDims(dims, risk, registry);
+  const { risk: finalRisk, drivers } = riskFromDims(dims, risk ? String(risk).toLowerCase() : risk, registry);
   if (!finalRisk) throw new Error('give --dims (preferred) or --risk');
-  const cls = classify(scope, finalRisk);
+  // A risk flag is never TRIVIAL work (the completion gate blocks TRIVIAL with flags), so lift it to SMALL.
+  const cls = classify(scope, finalRisk) === 'TRIVIAL' && flags.length ? 'SMALL' : classify(scope, finalRisk);
   const budget = registry.budgets[cls];
   const text = request.toLowerCase();
   const byId = new Map(registry.capabilities.map((c) => [c.id, c]));
@@ -62,7 +63,7 @@ export function route({ request = '', scope, risk, dims = {}, flags = [] }, regi
   const isReviewer = (id) => byId.get(id)?.reviewer_gate === true;
   const required = new Map();
   for (const f of flags) for (const id of registry.risk_requirements[f]) if (!required.has(id)) required.set(id, f);
-  const reviewers = [...new Set([...budget.reviewers, ...[...required.keys()].filter(isReviewer)])];
+  const reviewers = [...new Set([...budget.reviewers, ...(flags.length ? budget.reviewers_if_flagged || [] : []), ...[...required.keys()].filter(isReviewer)])];
 
   const entry = (c, why) => ({ id: c.id, agent: c.agent, model: modelOf(registry, c), max_turns: c.max_turns, parallel: c.parallel, why });
   // Staffing policy: required (risk) capabilities first, then trigger matches; reviewers are never staffed

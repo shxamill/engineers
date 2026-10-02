@@ -8,7 +8,9 @@ import { join } from 'node:path';
 import { readInput, block, pluginRoot, projectDir, bareAgentName, sourceFingerprint, logEvent } from './lib.mjs';
 
 const input = readInput();
-if (input.stop_hook_active) process.exit(0);
+// After one block (stop_hook_active), never block again, but still record a valid re-sent handoff.
+const retry = Boolean(input.stop_hook_active);
+const reject = (reason) => (retry ? process.exit(0) : block(reason));
 
 let orgAgents = [];
 try {
@@ -45,7 +47,7 @@ const label = (name) => new RegExp(`^[\\s*_#>-]*${name}[*_\`]*\\s*:[*_\`\\s]*`, 
 const status = msg.match(new RegExp(`${label('STATUS').source}([A-Z_]+)`, 'm'));
 if (!status) {
   logEvent(dir, { event: 'handoff', agent, agent_id: input.agent_id || null, status: null, accepted: false });
-  block(
+  reject(
     'Handoff missing. End your final message with the Handoff block from the constitution: ' +
       'STATUS / TASK / RESULT / CHANGED / EVIDENCE / RISKS / FOLLOW_UP. Re-send your conclusion in that format now.',
   );
@@ -62,14 +64,16 @@ if (status[1] === 'PASS') {
   // Empty, or a dismissal ("none", "n/a — docs only") with no command or number cited.
   if (!evidence || /^[-*\s]*([.\s]*$|(none|n\/?a|not run|not applicable|nothing|tbd|no evidence|skipped)\b[^`\d]*$)/i.test(evidence)) {
     logEvent(dir, { event: 'handoff', agent, agent_id: input.agent_id || null, status: 'PASS', accepted: false });
-    block(
+    reject(
       'STATUS: PASS requires EVIDENCE — the commands/checks you actually ran this session and their outcomes. ' +
         'Run the verification now and report it, or change STATUS to FAIL or BLOCKED and say why.',
     );
   }
 }
 
-// Accepted handoff: append to the gate ledger the Stop gate reads, bound to the reviewed content.
+// Accepted handoff: append to the gate ledger the Stop gate reads, bound to the reviewed content. Only the plugin's
+// own (namespaced) agents write it; a project or user agent that merely shares a name gets the handoff check only.
+if (!type.startsWith('engineering-os:')) process.exit(0);
 const entry = { agent, agent_id: input.agent_id || null, status: status[1], at: Date.now(), fingerprint: sourceFingerprint(dir) };
 try {
   mkdirSync(join(dir, '.eng', 'evidence'), { recursive: true });

@@ -30,4 +30,4 @@ graders:
     pattern: "VERDICT: PASS"
   - type: llm
     name: slice-quality
-    criteria: "The DELETE endpoint returns 204/200 on success and 404 for unknown or non-numeric ids, tests cover success and 404, the UI button is keyboard-accessible with an accessible name and refreshes the list, and the agent verified with evidence and reviewed the change independently."
+    criteria: "The DELETE endpoint returns 204/200 on success and 404 for unknown or non-numeric ids, tests cover success and 404, the UI button is keyboard-accessible with an accessible name and refreshes the list, and the final report cites the tests or commands that were actually run."

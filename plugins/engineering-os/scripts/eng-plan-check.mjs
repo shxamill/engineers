@@ -118,7 +118,7 @@ export function checkPlan(tasks, capabilityIds = null, opts = {}) {
   const failed = tasks.filter((t) => t.state === 'FAILED');
   if (failed.length) warnings.push(`FAILED tasks need a new approach or escalation: ${failed.map((t) => t.id).join(', ')}`);
   const lacking = tasks.length ? V3_COLUMNS.filter((c) => !(c in tasks[0])) : [];
-  if (lacking.length) warnings.push(`V2 plan format: add column(s) ${lacking.join(', ')} (docs/engineering/v3-migration.md)`);
+  if (lacking.length) warnings.push(`V2 plan format: add column(s) ${lacking.join(', ')} (see the engineering-os 3.0.0 migration guide)`);
   return { errors: [...new Set(errors)], warnings, frontier: frontier.map((t) => t.id), counts: Object.fromEntries(STATES.map((s) => [s, tasks.filter((t) => t.state === s).length])) };
 }
 

@@ -12,7 +12,7 @@ Deterministic hooks and scripts enforce the critical gates. Agent instructions a
 [![org-ci](https://github.com/shxamill/engineers/actions/workflows/org-ci.yml/badge.svg)](https://github.com/shxamill/engineers/actions/workflows/org-ci.yml)
 
 > [!NOTE]
-> **Status: experimental (plugin v3.0.0).** Automated suites cover the OS: a validator, 306 hook tests, and 89 engine tests, run in CI on Ubuntu and Windows, plus 22 scripted mutations that each must turn a suite red. The V2 benchmark (15 scenarios) ran in the plugin arm only; see [Evaluation](#evaluation) for the V3 comparison with plain Claude Code. The OS has not yet been used on a production codebase, and it has only been tested with Claude Code 2.1.286 and 2.1.287. Read [Known limitations](#known-limitations) before relying on it.
+> **Status: experimental (plugin v3.0.0).** Automated suites cover the OS: a validator, 365 hook tests, and 103 engine tests, run in CI on Ubuntu and Windows, plus 33 scripted mutations that each must make a test fail. An independent fresh-context review of V3 found 20 defects; all are fixed or documented ([review record](docs/engineering/reviews/v3-fresh-review.md)). The V2 benchmark (15 scenarios) ran in the plugin arm only; see [Evaluation](#evaluation) for the V3 comparison with plain Claude Code. The OS has not yet been used on a production codebase, and it has only been tested with Claude Code 2.1.286 and 2.1.287. Read [Known limitations](#known-limitations) before relying on it.
 
 **Contents:** [Overview](#overview) · [Problem](#the-problem) · [Solution](#the-solution) · [How it works](#how-it-works) · [Lifecycle](#engineering-lifecycle) · [Staffing](#dynamic-staffing) · [Organization](#organization-map) · [Context efficiency](#token-and-context-efficiency) · [Security](#safety-and-security) · [Verification](#verification-and-quality) · [Failure recovery](#failure-recovery) · [Example](#example-from-request-to-verified-outcome) · [Installation](#installation) · [Quick start](#quick-start) · [Commands](#commands) · [Repository structure](#repository-structure) · [Internals](#architecture-internals) · [Evaluation](#evaluation) · [Testing](#testing-the-os-itself) · [Limitations](#known-limitations) · [Principles](#design-principles) · [Roadmap](#roadmap) · [Contributing](#contributing) · [License](#license) · [Support](#support)
 
@@ -153,7 +153,7 @@ Flags are not only self-declared. The registry maps eight of them to path patter
 |---|---|---|---|---|---|
 | TRIVIAL | 0 (main session only) | 0 | self-check of the diff | targeted | 1 |
 | SMALL | 1 | 1 | code review | standard | 2 |
-| MEDIUM | 4 | 2 | scope judge, code review | standard | 2 |
+| MEDIUM | 4 | 2 | scope judge, code review (+ adversarial QA with any risk flag) | standard | 2 |
 | LARGE | 8 | 4 | scope judge, code review, adversarial QA | full | 2 |
 | CRITICAL | 10 | 3 | scope judge, code review, AppSec, adversarial QA | full | 2 |
 
@@ -326,12 +326,13 @@ They **ask you first** for these:
    - adversarial QA tries to break LARGE or risk-flagged work.
 3. **Evidence contract.** Every specialist ends with a handoff (`STATUS / TASK / RESULT / CHANGED / EVIDENCE / RISKS / FOLLOW_UP`). Work cut off by the turn limit is FAIL or BLOCKED, never PASS. The `SubagentStop` hook rejects a missing handoff or a PASS without evidence. Accepted verdicts are recorded in a gate ledger with the agent id and the content fingerprint.
 4. **Completion gate (`Stop` hook).** Once source files have changed in the session, including changes already committed, the session cannot finish until all of these hold:
-   - `eng-verify` evidence matches the current **content fingerprint** (a hash of the source tree: any source edit invalidates it, a commit doesn't, and touching the evidence file doesn't help), and its `summary.json` agrees;
+   - `eng-verify` evidence matches the current **content fingerprint** (a hash of the source tree: any source edit invalidates it, a commit doesn't, and touching the evidence file doesn't help), comes from a full run at the class's verify level, and its `summary.json` agrees;
    - `Class:` and `Flags:` are recorded in `status.md`;
    - the diff fits the declared class (TRIVIAL: at most 1 non-test source file; SMALL: at most 3, in one top-level area), and TRIVIAL work carries no risk flag;
    - every flag implied by changed paths or new dependencies is declared, or waived with a reason;
-   - SMALL+ work has acceptance criteria (`AC-n:` lines); MEDIUM+ work has a plan with no task still in flight. A deliberate skip is recorded as `Skipped: <gate> (<reason>)`;
-   - every reviewer the class and flags require has a PASS for the current content.
+   - SMALL+ work has acceptance criteria for the current objective (`AC-n:` lines); MEDIUM+ work has a plan with at least one task and none still in flight. A deliberate skip is recorded as `Skipped: <gate> (<reason>)`;
+   - every reviewer the class and flags require has a PASS for the current content (MEDIUM work with any risk flag adds adversarial QA);
+   - no work committed this session was left on another branch.
 5. **Acceptance table.** The final report maps every acceptance criterion and every risk-flag deliverable to a file, test, or command output, and lists unmet ones as gaps.
 6. **Outcome is separate from deployment.** "Code deployed" and "intended outcome achieved" are reported separately (`eng-outcome`).
 
@@ -606,9 +607,9 @@ claude plugin eval . --scaffold --trust-plugin --allow-tools Bash Write Edit --a
 | Suite | What it checks | Where it runs |
 |---|---|---|
 | [`validate-org.mjs`](plugins/engineering-os/scripts/validate-org.mjs) | Plugin layout and manifests; agent and skill frontmatter, with key allowlists; registry⇄agent drift (tools, tier→model, `maxTurns`); registry⇄skill for gate reviewers; hook exec form; cross-references; description and constitution size budgets; risk-flag rules, path patterns, and gates | Locally and in CI (Ubuntu, Windows) |
-| [`verify-hooks.mjs`](plugins/engineering-os/scripts/verify-hooks.mjs) (306 cases) | Bash guard allow/ask/deny decisions, including quoting, heredocs, wrappers, nested shells, and a PowerShell table; evidence-tamper denials; secrets guard; handoff contract and gate ledger; session and subagent context; every completion-gate condition, including fingerprint freshness, risk paths, acceptance criteria, and plan state; telemetry; formatter no-op paths. Every hook call must finish within 5 s (`--timings` prints p50 per hook) | Locally and in CI (Ubuntu, Windows) |
-| [`test-engines.mjs`](plugins/engineering-os/scripts/test-engines.mjs) (89 cases) | YAML parser, router (dimensions, mandatory-first staffing), project detection, content fingerprint, verifier (tamper, CI bypass, supply chain, secrets, overrides, baseline, schema 2), plan checker (DoR, DoD, retries), release check, metrics | Locally and in CI (Ubuntu, Windows) |
-| [`mutation-check.mjs`](plugins/engineering-os/scripts/mutation-check.mjs) (22 mutations) | Breaks one safety mechanism at a time (gate conditions, evidence guards, secret paths, catastrophic commands, handoff evidence, router order, plan checks, verifier detectors, release approval) in a temporary copy and requires a suite to fail | Locally and in CI (Ubuntu) |
+| [`verify-hooks.mjs`](plugins/engineering-os/scripts/verify-hooks.mjs) (365 cases) | Bash guard allow/ask/deny decisions, including quoting, heredocs, wrappers, nested shells, and a PowerShell table; evidence-tamper denials; secrets guard; handoff contract and gate ledger; session and subagent context; every completion-gate condition, including fingerprint freshness, risk paths, acceptance criteria, and plan state; telemetry; formatter no-op paths. Every hook call must finish within 5 s (`--timings` prints p50 per hook) | Locally and in CI (Ubuntu, Windows) |
+| [`test-engines.mjs`](plugins/engineering-os/scripts/test-engines.mjs) (103 cases) | YAML parser, router (dimensions, mandatory-first staffing), project detection, content fingerprint, verifier (tamper, CI bypass, supply chain, secrets, overrides, baseline, schema 2), plan checker (DoR, DoD, retries), release check, metrics | Locally and in CI (Ubuntu, Windows) |
+| [`mutation-check.mjs`](plugins/engineering-os/scripts/mutation-check.mjs) (33 mutations) | Breaks one safety mechanism at a time (gate conditions, evidence guards, secret paths, catastrophic commands, handoff evidence, router order, plan checks, verifier detectors, release approval, and each fresh-review fix) in a temporary copy and requires a test in the guarding suite to fail; a crash doesn't count | Locally and in CI (Ubuntu) |
 | `claude plugin validate --strict` | Plugin schema and components, using Claude Code's own validator | Locally |
 | Benchmark (`claude plugin eval`) | End-to-end behavior in 16 scenarios, plugin vs plain Claude Code | Locally, opt-in (costs money) |
 
@@ -627,6 +628,7 @@ claude plugin eval . --scaffold --trust-plugin --allow-tools Bash Write Edit --a
   - the acceptance table in the final report (the gate checks only that `AC-n` lines exist);
   - reviewers not editing files (they keep Bash);
   - running gate reviewers in the foreground.
+- **Reviewer verdicts are recorded per agent, not per capability.** One `security-engineer` PASS at the current content satisfies every security review the flags require (AppSec, privacy, supply chain), even if that run focused on only one of them. Found by the [fresh-context review](docs/engineering/reviews/v3-fresh-review.md) (R-14).
 - **Path-implied flags are heuristics.** `risk_paths` patterns can miss a risky file with an unusual name, and can flag a harmless one (which then needs a `Waived:` line with a reason).
 - The completion gate **fails open on internal errors**, blocks once per stop attempt, and can be turned off per project (`"stopGate": false` in `project-profile.json`). Its class-size check is coarse: it counts non-test source files and top-level directories.
 - A mandatory capability that the class can't staff (for example `ux` at SMALL) is reported as `UNCOVERED BY BUDGET`, not staffed. The orchestrator must cover it or report it unmet.

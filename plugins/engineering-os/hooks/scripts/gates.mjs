@@ -1,17 +1,19 @@
 // Completion-gate evaluation, shared by the Stop hook (stop-verify.mjs) and the status report (eng-status.mjs).
 // Everything is derived from files the OS owns: git state, docs/engineering/status.md (Now), the registry,
 // .eng/evidence/verify-latest.json, and the gate ledger .eng/evidence/gates.jsonl.
-// Freshness is by content fingerprint (see lib.mjs); evidence written by V2 (no fingerprint) falls back to mtime.
+// Freshness is by content fingerprint (see lib.mjs); entries without one never count in a git repository.
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { NON_SOURCE, TEST_FILE, sourceFingerprint, pluginRoot } from './lib.mjs';
+import { NON_SOURCE, TEST_FILE, LOCKFILE, sourceFingerprint, pluginRoot } from './lib.mjs';
 import { parseYaml } from '../../scripts/lib/yaml-lite.mjs';
 import { parsePlan, checkPlan } from '../../scripts/eng-plan-check.mjs';
 
 const readJson = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
 const readText = (p) => { try { return readFileSync(p, 'utf8'); } catch { return ''; } };
 const IN_FLIGHT = ['READY', 'RUNNING', 'REVIEW', 'VERIFICATION'];
+const LEVEL_RANK = { targeted: 1, standard: 2, full: 3 };
+const FUTURE_SLACK_MS = 60_000; // a ledger entry dated later than this is forged or clock-skewed: ignored
 
 // "## Now" section of status.md, plus the declarations the gates read from it.
 export function readNow(dir) {
@@ -24,7 +26,8 @@ export function readNow(dir) {
     .map((f) => f.trim().toLowerCase()).filter((f) => /^[a-z][a-z-]*$/.test(f) && f !== 'none');
   const pairs = (label) => {
     const out = new Map();
-    for (const line of now.split('\n').filter((l) => new RegExp(`${label}:`, 'i').test(l)))
+    // Only a line that starts with the label ("- Waived: auth (…)"); "Not waived: …" is prose, not a waiver.
+    for (const line of now.split('\n').filter((l) => new RegExp(`^\\s*[-*]?\\s*${label}:`, 'i').test(l)))
       for (const m of line.matchAll(/([a-z][\w-]*)\s*\(([^)]{3,})\)/gi)) out.set(m[1].toLowerCase(), m[2].trim());
     return out;
   };
@@ -35,10 +38,22 @@ export function readNow(dir) {
   return { status, now, cls, risk, flags, waived: pairs('Waived'), skipped: pairs('Skipped'), phase, objective, next, blockers };
 }
 
-// AC-n lines that are real criteria, not template placeholders ("Given __, when __", "<...>").
-export function hasAcceptanceCriteria(dir, statusText) {
-  const req = readText(join(dir, 'docs', 'engineering', 'requirements.md'));
-  return `${statusText}\n${req}`.split('\n').some((l) => /\bAC-\d+\b[\s:|.)-]+\S.{6,}/.test(l) && !/__|<[^>]+>/.test(l));
+// An AC-n line that is a real criterion: what remains after removing template placeholders ("<…>", "__",
+// "Given/when/then", parenthetical notes) still says something.
+export const isAcceptanceCriterion = (line) => {
+  const m = line.match(/\bAC-\d+\b[\s:|.)-]+(.*)$/);
+  if (!m) return false;
+  const rest = m[1].replace(/<[^>]*>/g, ' ').replace(/\([^)]*\)/g, ' ').replace(/_{2,}/g, ' ').replace(/\b(given|when|then|and)\b/gi, ' ');
+  return (rest.match(/[\p{L}\p{N}]/gu) || []).length >= 6;
+};
+
+// Criteria for the current objective: AC lines in status.md Now, or in requirements.md when that file changed in
+// this session or Now points to it. Criteria left in requirements.md by an earlier objective don't count.
+export function hasAcceptanceCriteria(dir, nowText, changed = []) {
+  if (nowText.split('\n').some(isAcceptanceCriterion)) return true;
+  const req = 'docs/engineering/requirements.md';
+  if (!changed.includes(req) && !/requirements\.md/.test(nowText)) return false;
+  return readText(join(dir, req)).split('\n').some(isAcceptanceCriterion);
 }
 
 export function readLedger(dir) {
@@ -50,29 +65,51 @@ export function loadRegistryFromPlugin() {
   return parseYaml(readFileSync(join(pluginRoot(), 'routing', 'capabilities.yaml'), 'utf8'));
 }
 
-// Source files changed this session: working tree + commits since the session's starting HEAD.
-export function changedSource(dir, sessionId) {
+// Files changed this session: the working tree, commits since the session's starting HEAD, and commits made
+// this session on other local branches that the current branch doesn't contain (work left on a side branch).
+export function changedFiles(dir, sessionId) {
   const git = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
-  const changed = new Set(git('status', '--porcelain', '-uall').split('\n').filter(Boolean).map((l) => l.slice(3).replace(/^"|"$/g, '').split(' -> ').pop()));
+  const all = new Set();
+  const z = git('status', '--porcelain', '-z', '-uall').split('\0');
+  for (let i = 0; i < z.length; i++) {
+    if (!z[i]) continue;
+    all.add(z[i].slice(3));
+    if (/[RC]/.test(z[i].slice(0, 2))) i++; // rename/copy: the next entry is the old path
+  }
+  const branches = [];
   const sid = String(sessionId || '').replace(/[^\w-]/g, '');
   const start = sid ? readJson(join(dir, '.eng', 'state', `session-${sid}.json`)) : null;
-  if (start?.head) {
-    try { for (const f of git('diff', '--name-only', start.head, 'HEAD').split('\n').filter(Boolean)) changed.add(f); } catch {}
+  if (/^[0-9a-f]{40}$/.test(start?.head || '')) {
+    try { for (const f of git('diff', '--name-only', start.head, 'HEAD').split('\n').filter(Boolean)) all.add(f); } catch {}
+    try {
+      const since = start.at ? [`--since=@${Math.floor(start.at / 1000) - 1}`] : [];
+      for (const b of git('for-each-ref', '--format=%(refname:short)', 'refs/heads').split('\n').filter(Boolean)) {
+        const files = git('log', '--format=', '--name-only', ...since, b, '--not', 'HEAD', start.head).split('\n').filter(Boolean);
+        if (!files.length) continue;
+        branches.push(b);
+        for (const f of files) all.add(f);
+      }
+    } catch {}
   }
-  return [...changed].filter((f) => !NON_SOURCE.test(f));
+  const list = [...all];
+  return { all: list, source: list.filter((f) => !NON_SOURCE.test(f)), branches };
 }
 
+export const changedSource = (dir, sessionId) => changedFiles(dir, sessionId).source;
+
 export function evaluateGates(dir, { sessionId, registry } = {}) {
-  const source = changedSource(dir, sessionId);
+  const changed = changedFiles(dir, sessionId);
+  const { source } = changed;
   const result = { applies: source.length > 0, source, missing: [], reviewers: [], verification: null, implied: [], fingerprint: null };
   if (!result.applies) return result;
   const add = (key, msg) => result.missing.push({ key, msg });
   const fp = sourceFingerprint(dir);
   result.fingerprint = fp;
   const latest = Math.max(...source.map((f) => { try { return statSync(join(dir, f)).mtimeMs; } catch { return 0; } }));
-  // Fingerprint when both sides have one; otherwise (V2 evidence, or no git) the V2 time rule:
-  // evidence file mtime ≥ latest change, ledger entries within 1 s of it.
-  const freshEntry = (e, mtime, slackMs = 0) => (fp && e?.fingerprint ? e.fingerprint === fp : (mtime ?? e?.at ?? 0) >= latest - slackMs);
+  // With a fingerprint (any git repo), evidence and verdicts count only at the same fingerprint; an entry without
+  // one (2.x, or hand-written) is never current. Only when no fingerprint can be computed: the time rule
+  // (evidence mtime ≥ latest change; ledger entries within 1 s of it).
+  const freshEntry = (e, mtime, slackMs = 0) => (fp ? Boolean(e?.fingerprint) && e.fingerprint === fp : (mtime ?? e?.at ?? 0) >= latest - slackMs);
 
   // 1. Verification at the current content, with consistent evidence.
   const evidencePath = join(dir, '.eng', 'evidence', 'verify-latest.json');
@@ -80,6 +117,7 @@ export function evaluateGates(dir, { sessionId, registry } = {}) {
   const vFresh = Boolean(verify?.verdict) && freshEntry(verify, existsSync(evidencePath) ? statSync(evidencePath).mtimeMs : 0);
   result.verification = verify ? { verdict: verify.verdict, at: verify.timestamp || verify.at, fresh: vFresh } : null;
   if (!vFresh) add('verification', 'verification: run /engineering-os:eng-verify (no evidence for the current content)');
+  else if (verify.partial) add('verification', 'verification: the last eng-verify run was partial (--only/--skip); run the full level');
   else if (verify.evidence) {
     const summary = readJson(join(dir, verify.evidence, 'summary.json'));
     if (!summary || summary.fingerprint !== verify.fingerprint || summary.verdict !== verify.verdict)
@@ -92,10 +130,14 @@ export function evaluateGates(dir, { sessionId, registry } = {}) {
   if (!cls) { add('classification', 'classification: record `Class:` and `Flags:` in docs/engineering/status.md Now (/engineering-os:eng-intake); review gates are derived from it'); return result; }
   const reg = registry || loadRegistryFromPlugin();
   const declared = flags.filter((f) => reg.risk_requirements?.[f]);
-
-  // 3. Class fits the diff (PROC-13).
-  const impl = source.filter((f) => !TEST_FILE.test(f));
   const b = reg.budgets?.[cls];
+  if (vFresh && b?.verify && (LEVEL_RANK[verify.level] || 0) < LEVEL_RANK[b.verify])
+    add('verification', `verification: the last eng-verify run was at level ${verify.level || 'unknown'}; ${cls} needs /engineering-os:eng-verify ${b.verify}`);
+  if (changed.branches.length && !skipped.has('branches'))
+    add('branches', `work committed this session on ${changed.branches.join(', ')} is not in the current branch: check it out and finish its verification and reviews there, or merge it (or \`Skipped: branches (<reason>)\`)`);
+
+  // 3. Class fits the diff (PROC-13). Tests and generated lockfiles don't count toward the ceiling.
+  const impl = source.filter((f) => !TEST_FILE.test(f) && !LOCKFILE.test(f));
   if (b?.max_impl_files) {
     const areas = new Set(impl.map((f) => (f.includes('/') ? f.split('/')[0] : '.')));
     if (impl.length > b.max_impl_files || areas.size > b.max_areas)
@@ -105,9 +147,10 @@ export function evaluateGates(dir, { sessionId, registry } = {}) {
 
   // 4. Risk flags fit the changed paths (and new dependencies).
   const implied = new Map();
+  const words = (f) => f.replace(/([a-z0-9])([A-Z])/g, '$1-$2'); // AuthService.ts → Auth-Service.ts, useAuth → use-Auth
   for (const [flag, re] of Object.entries(reg.risk_paths || {})) {
     const rx = new RegExp(re, 'i');
-    const hit = impl.find((f) => rx.test(f));
+    const hit = impl.find((f) => rx.test(f) || rx.test(words(f)));
     if (hit) implied.set(flag, hit);
   }
   const newDeps = vFresh ? verify?.signals?.newDependencies || [] : [];
@@ -119,12 +162,13 @@ export function evaluateGates(dir, { sessionId, registry } = {}) {
 
   // 5. Lifecycle gates by class (registry `gates`), skippable only with a recorded reason.
   const gateOn = (g) => (reg.gates?.[g] || []).includes(cls) && !skipped.has(g);
-  if (gateOn('acceptance_criteria') && !hasAcceptanceCriteria(dir, now.status))
+  if (gateOn('acceptance_criteria') && !hasAcceptanceCriteria(dir, now.now, changed.all))
     add('acceptance_criteria', 'acceptance criteria: record testable `AC-n` lines in status.md or requirements.md (or `Skipped: acceptance_criteria (<reason>)`)');
   if (gateOn('plan_complete')) {
     const planText = readText(join(dir, 'docs', 'engineering', 'implementation-plan.md'));
     const parsed = planText ? parsePlan(planText) : { error: 'missing' };
-    if (parsed.error) add('plan_complete', `plan: docs/engineering/implementation-plan.md ${parsed.error === 'missing' ? 'is missing' : `is invalid (${parsed.error})`}; /engineering-os:eng-plan (or \`Skipped: plan_complete (<reason>)\`)`);
+    if (!parsed.error && !parsed.tasks.length) add('plan_complete', 'plan: docs/engineering/implementation-plan.md has no tasks; /engineering-os:eng-plan (or `Skipped: plan_complete (<reason>)`)');
+    else if (parsed.error) add('plan_complete', `plan: docs/engineering/implementation-plan.md ${parsed.error === 'missing' ? 'is missing' : `is invalid (${parsed.error})`}; /engineering-os:eng-plan (or \`Skipped: plan_complete (<reason>)\`)`);
     else {
       const chk = checkPlan(parsed.tasks, reg.capabilities.map((c) => c.id), { registry: reg, root: dir, cls });
       const open = parsed.tasks.filter((t) => IN_FLIGHT.includes(t.state)).map((t) => `${t.id}=${t.state}`);
@@ -136,13 +180,13 @@ export function evaluateGates(dir, { sessionId, registry } = {}) {
   // 6. Required reviewers at the current content (registry budgets + flag reviewers with reviewer_gate).
   if (cls !== 'TRIVIAL') {
     const byId = new Map(reg.capabilities.map((c) => [c.id, c]));
-    const capIds = new Set(b?.reviewers || []);
+    const capIds = new Set([...(b?.reviewers || []), ...(declared.length ? b?.reviewers_if_flagged || [] : [])]);
     for (const f of declared) for (const id of reg.risk_requirements[f]) if (byId.get(id)?.reviewer_gate) capIds.add(id);
     const byAgent = new Map();
     for (const id of capIds) { const c = byId.get(id); if (c && !byAgent.has(c.agent)) byAgent.set(c.agent, c.skill || c.agent); }
     const ledger = readLedger(dir);
     for (const [agent, skill] of byAgent) {
-      const entries = ledger.filter((g) => g.agent === agent).sort((x, y) => (y.at || 0) - (x.at || 0));
+      const entries = ledger.filter((g) => g.agent === agent && !((g.at || 0) > Date.now() + FUTURE_SLACK_MS)).sort((x, y) => (y.at || 0) - (x.at || 0));
       const current = entries.filter((g) => freshEntry(g, g.at, 1000));
       const top = current[0];
       const state = top ? top.status : entries.length ? 'STALE' : 'MISSING';

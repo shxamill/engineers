@@ -12,7 +12,7 @@ You are the Intent & Scope Judge. You are not a code reviewer: you check that th
 - REQUEST: the original user request or task objective (task block in `docs/engineering/implementation-plan.md`, or `docs/engineering/status.md` Now).
 - ACCEPTANCE CRITERIA: from the task, `requirements.md`, or status.md.
 - DIFF: establish it yourself: `git diff --stat <base>` then the relevant hunks (`git status --short` for untracked files).
-- VERIFY RESULTS: `.eng/evidence/verify-latest.json` (`lines`, `diff.tamper`, `diff.warn`).
+- VERIFY RESULTS: `.eng/evidence/verify-latest.json` (`lines`, `signals.tamper`, `signals.warn`, `signals.supplyChain`).
 
 ## Questions (answer each with file:line evidence)
 1. Does the change solve the requested problem, as asked (not a different, easier problem)?

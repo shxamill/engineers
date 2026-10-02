@@ -22,10 +22,10 @@ export const MUTATIONS = [
   ['gate-reviewer-pass', 'hooks/scripts/gates.mjs', "else if (top.status !== 'PASS')", 'else if (false)', H, 'reviewer verdict must be PASS'],
   ['gate-class-size', 'hooks/scripts/gates.mjs', 'if (impl.length > b.max_impl_files || areas.size > b.max_areas)', 'if (false)', H, 'declared class fits the diff'],
   ['gate-risk-paths', 'hooks/scripts/gates.mjs', 'if (undeclared.length)', 'if (false)', H, 'risk flags fit changed paths'],
-  ['gate-acceptance-criteria', 'hooks/scripts/gates.mjs', '!hasAcceptanceCriteria(dir, now.status)', 'false', H, 'AC gate for SMALL+'],
+  ['gate-acceptance-criteria', 'hooks/scripts/gates.mjs', '!hasAcceptanceCriteria(dir, now.now, changed.all)', 'false', H, 'AC gate for SMALL+'],
   ['gate-plan-in-flight', 'hooks/scripts/gates.mjs', 'else if (open.length)', 'else if (false)', H, 'plan gate for MEDIUM+'],
   ['guard-evidence-shell', 'hooks/scripts/guard-bash.mjs', '      denyReasons.add(EVIDENCE_REASON);\n', '      void 0;\n', H, 'shell cannot write evidence/ledger'],
-  ['guard-evidence-tools', 'hooks/scripts/guard-secrets.mjs', 'if (writes && PROTECTED_STATE.test(', 'if (false && PROTECTED_STATE.test(', H, 'file tools cannot write evidence/ledger'],
+  ['guard-evidence-tools', 'hooks/scripts/guard-secrets.mjs', 'if (writes && (PROTECTED_STATE.test(canon)', 'if (false && (PROTECTED_STATE.test(canon)', H, 'file tools cannot write evidence/ledger'],
   ['guard-secret-path', 'hooks/scripts/lib.mjs', "if (name === '.env') return true;", "if (name === '.env') return false;", H, 'secret files go to the human'],
   ['guard-catastrophic', 'hooks/scripts/guard-bash.mjs', "denyReasons.add('fork bomb')", 'void 0', H, 'catastrophic commands denied'],
   ['handoff-evidence', 'hooks/scripts/check-handoff.mjs', "if (status[1] === 'PASS') {", 'if (false) {', H, 'PASS requires evidence'],
@@ -38,6 +38,18 @@ export const MUTATIONS = [
   ['verify-fingerprint', 'scripts/eng-verify.mjs', 'const fingerprint = sourceFingerprint(root);', 'const fingerprint = null;', E, 'evidence records the fingerprint'],
   ['verify-supply-write-all', 'scripts/eng-verify.mjs', 'if (/^\\s*permissions:\\s*write-all\\b/.test(a.text)) supply.fail.push(', 'if (false) supply.fail.push(', E, 'write-all workflow permissions fail'],
   ['release-approval', 'scripts/eng-release-check.mjs', "if (/prod/.test(tgt) && (placeholder(approval)", 'if (false && (placeholder(approval)', E, 'production needs a named approval'],
+  // Fresh-context review fixes (R-n): each fix stays guarded by a test.
+  ['fingerprint-racy', 'hooks/scripts/lib.mjs', 'utimesSync(tmpIndex, st.atime, st.mtime);', 'void 0;', E, 'same-second edits change the fingerprint (R-3)'],
+  ['gate-unfingerprinted', 'hooks/scripts/gates.mjs', 'Boolean(e?.fingerprint) && e.fingerprint === fp', '(!e?.fingerprint || e.fingerprint === fp)', H, 'entries without a fingerprint are never current (R-4)'],
+  ['gate-future-ledger', 'hooks/scripts/gates.mjs', '!((g.at || 0) > Date.now() + FUTURE_SLACK_MS)', 'true', H, 'future-dated ledger entries ignored (R-4)'],
+  ['gate-verify-level', 'hooks/scripts/gates.mjs', '(LEVEL_RANK[verify.level] || 0) < LEVEL_RANK[b.verify]', 'false', H, 'verification at the class level (R-9)'],
+  ['gate-session-branches', 'hooks/scripts/gates.mjs', "if (changed.branches.length && !skipped.has('branches'))", 'if (false)', H, 'work left on another branch is seen (R-5)'],
+  ['guard-evidence-vars', 'hooks/scripts/guard-bash.mjs', 'analyze(expandVars(cmd, collectVars(cmd)));', 'analyze(cmd);', H, 'variables are expanded before the evidence check (R-6)'],
+  ['guard-evidence-cwd', 'hooks/scripts/guard-bash.mjs', 'if (cwd && !/^([a-z]:)?[\\\\/~]/i.test(w)) cands.push(', 'if (false) cands.push(', H, 'paths relative to an earlier cd are checked (R-5)'],
+  ['guard-paths-canonical', 'hooks/scripts/guard-secrets.mjs', 'PROTECTED_STATE.test(canon) ||', 'false ||', H, 'file-tool paths are normalized (R-7)'],
+  ['handoff-namespaced', 'hooks/scripts/check-handoff.mjs', "if (!type.startsWith('engineering-os:')) process.exit(0);", 'void 0;', H, 'only plugin agents write the ledger (R-14)'],
+  ['verify-session-base', 'scripts/eng-verify.mjs', "if (start && start !== head && git(root, ['merge-base', '--is-ancestor', start, 'HEAD']) !== null) return start;", 'void 0;', E, 'committed work diffed from the session start (R-1)'],
+  ['route-trivial-flags', 'scripts/eng-route.mjs', "=== 'TRIVIAL' && flags.length ? 'SMALL'", "=== 'NEVER' && flags.length ? 'SMALL'", E, 'a risk flag lifts TRIVIAL (R-18)'],
 ];
 
 function runSuite(dir, suite) {
@@ -60,9 +72,11 @@ async function check([id, file, find, replace, suite, what]) {
     if (hits !== 1) return { id, what, ok: false, detail: `mutation target ${hits === 0 ? 'missing' : `ambiguous (${hits}×)`} in ${file}` };
     writeFileSync(target, text.replace(find, replace));
     const r = await runSuite(dir, suite);
-    const killed = r.code !== 0;
-    const firstFail = (r.out.split('\n').find((l) => l.startsWith('FAIL')) || '').slice(0, 110);
-    return { id, what, ok: killed, detail: killed ? firstFail : `SURVIVED — ${suite} still passes with this mechanism disabled` };
+    // Killed only by a failing test (a "FAIL <name>" line); a crash proves nothing about the suite's coverage.
+    const firstFail = (r.out.split('\n').find((l) => l.startsWith('FAIL ')) || '').slice(0, 110);
+    const killed = r.code !== 0 && Boolean(firstFail);
+    const why = r.code !== 0 ? `CRASHED — ${suite} exited ${r.code} without a failing test: ${r.out.trim().split('\n').slice(-1)[0]?.slice(0, 120)}` : `SURVIVED — ${suite} still passes with this mechanism disabled`;
+    return { id, what, ok: killed, detail: killed ? firstFail : why };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

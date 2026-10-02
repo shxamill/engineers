@@ -1,6 +1,6 @@
 # ADR-0003: Engineering OS V3 — evidence-bound gates, single-source registry, observable organization
 
-_Status: accepted · Date: 2026-10-02 · Builds on ADR-0002 · Reversibility: easy (plugin versioned; V2 evidence still accepted via the mtime fallback)_
+_Status: accepted · Date: 2026-10-02 · Builds on ADR-0002 · Reversibility: easy (plugin versioned; 2.x evidence must be regenerated once)_
 
 ## Context
 
@@ -19,7 +19,7 @@ Research shows that instructions don't prevent evaluator tampering (AG-5) and th
 ## Decision
 
 1. **Control-plane model (retained).** The main session is the orchestrator and owns the outcome. Workers' PASS verdicts count only through the gate ledger.
-2. **Evidence model.** Verification results and reviewer verdicts are bound to a **content fingerprint** of the source tree, computed with a temporary git index and `write-tree`. The fingerprint is independent of commits and mtimes. Verification evidence is `verify-latest.json` schema 2: task, commit, fingerprint, and checks with status, command, and evidence. V2 evidence without a fingerprint falls back to mtime comparison.
+2. **Evidence model.** Verification results and reviewer verdicts are bound to a **content fingerprint** of the source tree, computed with a temporary git index and `write-tree`. The fingerprint is independent of commits and mtimes. Verification evidence is `verify-latest.json` schema 2: task, commit, fingerprint, and checks with status, command, and evidence. Evidence without a fingerprint is never current in a git repository (amended after the fresh-context review, R-4); time is compared only when no fingerprint can be computed.
 3. **Evidence integrity.**
    - Guards deny shell and Edit/Write tampering with `.eng/evidence`, `.eng/state`, and `.eng/telemetry.jsonl`, and deny direct invocation of the ledger and gate hooks.
    - The gate cross-checks that the evidence directory exists and agrees.
@@ -58,4 +58,4 @@ Research shows that instructions don't prevent evaluator tampering (AG-5) and th
   - `touch`ing or `echo`ing evidence no longer passes.
 - **New work at completion:** agents must declare implied flags or record waivers, and must record ACs for SMALL+ work. That is more process, aimed at the failures observed in run 2.
 - **Telemetry:** a new local file. It records guard reasons but never command text.
-- **Platform dependency:** the fingerprint needs `git` on PATH (already required). On failure, the gate falls back to mtime, so it fails open on its own errors, as in V2.
+- **Platform dependency:** the fingerprint needs `git` on PATH (already required). If the fingerprint can't be computed, the gate compares times instead, so it fails open on its own errors, as in V2.

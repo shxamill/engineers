@@ -62,14 +62,18 @@ export function checkRelease(text, { stage = 'readiness', target } = {}) {
     else gaps.push(`${item}: status "${r.status || 'empty'}" (needs PASS with evidence, or N/A with a reason)`);
   }
   const approval = (text.match(/Human approval:\s*([^·\n_]*)/) || [])[1]?.trim() || '';
-  if (/prod/.test(tgt) && (placeholder(approval) || /required for production/i.test(approval)))
+  // A named approval, not a status word: "TBD", "pending", "none", "n/a", "required for production" don't count.
+  const unnamed = /^(tbd|tba|todo|pending|none|n\/?a|no|not yet|unknown|required( for production)?|awaiting\b.*|to be (confirmed|decided)|\?+)\.?$/i;
+  if (/prod/.test(tgt) && (placeholder(approval) || unnamed.test(approval) || /required for production/i.test(approval)))
     gaps.push('production release without a named human approval ("Human approval: <who>, <when>")');
   if (stage === 'post-deploy') {
     const post = tableAfter(text, /post-deploy/i);
     if (!post?.length) gaps.push('no "Post-deploy verification" table found');
     else for (const r of post) {
       if (placeholder(r.actual)) gaps.push(`post-deploy ${r.check || '?'}: no Actual value`);
-      else if (/\b(fail|failed|error|down|regress)/i.test(r.actual)) gaps.push(`post-deploy ${r.check || '?'}: ${r.actual}`);
+      // A failing actual: an explicit FAIL/FAILED/DOWN/REGRESSED verdict (not the word "errors" in "errors flat").
+      else if (/^\s*(fail(ed)?|down|regress(ed)?)\b|\b(fail(ed)?|down|regress(ed)?|breach(ed)?)\s*[:(—-]|[(—-]\s*(fail(ed)?|regress(ed)?|down)\b|\bregressed\b|\bFAIL\b/i.test(r.actual))
+        gaps.push(`post-deploy ${r.check || '?'}: ${r.actual}`);
     }
   }
   return { ready: gaps.length === 0, target: tgt || null, stage, rows: readiness?.length || 0, gaps };

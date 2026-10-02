@@ -149,7 +149,7 @@ Class budgets come from [`routing/capabilities.yaml`](routing/capabilities.yaml)
 |---|---|---|---|---|---|---|---|
 | TRIVIAL | 0 | 0 | none | 1 | targeted | none (self-check of the diff) | 1 non-test source file, 1 area |
 | SMALL | 1 | 1 | none | 2 | standard | code-review | 3 non-test source files, 1 area |
-| MEDIUM | 4 | 2 | quick | 2 | standard | scope-judge, code-review | — |
+| MEDIUM | 4 | 2 | quick | 2 | standard | scope-judge, code-review (+ adversarial-qa with any risk flag) | — |
 | LARGE | 8 | 4 | standard | 2 | full | scope-judge, code-review, adversarial-qa | — |
 | CRITICAL | 10 | 3 | standard | 2 | full | scope-judge, code-review, appsec, adversarial-qa | — |
 
@@ -236,7 +236,7 @@ Deterministic Node.js scripts with no dependencies. Skills call them as `node "$
 |---|---|---|
 | `eng-route.mjs` | `--request "<summary>" --scope trivial\|small\|medium\|large (--dims name=level,… \| --risk low\|medium\|high\|critical) [--flags f1,f2] [--json] [--no-log]` | CLASS and RISK (with the driving dimensions), BUDGET, STAFF (mandatory first), REVIEWERS with their skills, MANDATORY, UNCOVERED BY BUDGET, one DELIVERABLE line per flag, GATES; logs a `route` telemetry event; exit 2 on bad input, an unknown dimension, or a `--risk` below the dimensions |
 | `eng-detect.mjs` | `[projectDir] [--write]` | STACK, CHECKS, CI, DEPLOY, DATA, AI, NOTES; `--write` saves `project-profile.json` (keeping `overrides` and `stopGate: false`) |
-| `eng-verify.mjs` | `[projectDir] [targeted\|standard\|full] [--only k1,k2] [--skip k] [--base ref] [--task T-id] [--network] [--timeout ms] [--json]` | Compact verdict lines plus an EVIDENCE path; exit 0 on PASS or NO_CHECKS, 1 on FAIL, 2 on usage error |
+| `eng-verify.mjs` | `[projectDir] [targeted\|standard\|full] [--only k1,k2] [--skip k] [--base ref] [--task T-id] [--network] [--timeout seconds] [--json]` | Compact verdict lines plus an EVIDENCE path; exit 0 on PASS or NO_CHECKS, 1 on FAIL, 2 on usage error |
 | `eng-plan-check.mjs` | `[planPath] [--json]` | Errors (cycles, unknown dependencies, same-wave file overlap, bad states, unknown capabilities, owner ≠ capability agent, READY without AC ids, DONE without an existing evidence path, attempts over the class retry budget while in flight) and `READY NOW`; a V2 table (no AC/Attempts/Evidence columns) passes with a warning; exit 1 on errors |
 | `eng-release-check.mjs` | `[planPath] [--stage readiness\|post-deploy] [--target <env>] [--env NAME,…] [--json]` | `RELEASE: READY` or `NOT_READY` with one GAP line each: readiness rows need PASS + evidence or N/A + reason; production needs `Human approval: <who>, <when>`; post-deploy rows need actual values, none failing. `--env` prints PRESENT or MISSING per name and never a value. Exit 0 READY, 1 NOT_READY, 2 usage |
 | `eng-status.mjs` | `[projectDir] [--metrics] [--json]` | PROJECT, OBJECTIVE, CLASS, TASKS, AGENTS, BLOCKERS, VERIFICATION, REVIEWS, GATE, SECURITY, RELEASE, OUTCOME, COST, NEXT; `--metrics` aggregates `.eng/telemetry.jsonl` |
@@ -264,17 +264,18 @@ Defined in [`hooks/hooks.json`](hooks/hooks.json). All run as `node <script>`, w
 
 **Protected paths.** `.eng/state/`, `.eng/telemetry.jsonl`, `.eng/evidence/verify-*`, `verify-latest.json`, and `gates.jsonl` are written only by the engines and hooks. Reading them is allowed; scratch output may go to other files under `.eng/evidence/`.
 
-**Content fingerprint.** Freshness is decided by a hash of the source tree, computed from a temporary copy of the git index (`git add -A` → `write-tree` → `ls-tree`, docs and other non-source paths filtered out). The real index is never touched. Any source edit changes the fingerprint; a commit doesn't; touching a file without changing it doesn't. Evidence written by 2.x has no fingerprint and falls back to the old mtime rule.
+**Content fingerprint.** Freshness is decided by a hash of the source tree, computed from a temporary copy of the git index (`git add -A` → `write-tree` → `ls-tree`, docs and other non-source paths filtered out). The real index is never touched. Any source edit changes the fingerprint; a commit doesn't; touching a file without changing it doesn't. Evidence or verdicts without a fingerprint (written by 2.x, or by hand) never count; time is compared only when no fingerprint can be computed.
 
 **Completion gate** ([`gates.mjs`](hooks/scripts/gates.mjs), shared with `eng-status`). It applies when source files changed this session, whether uncommitted or committed since the session started. It requires all of the following:
-1. `verify-latest.json` was written at the current fingerprint, and the `summary.json` it points to agrees with it.
+1. `verify-latest.json` was written at the current fingerprint by a full run (not `--only`/`--skip`) at the class's verify level or higher, and the `summary.json` it points to agrees with it.
 2. `Class:` is recorded in `status.md` Now.
 3. The diff fits the class's diff ceiling, and TRIVIAL work carries no risk flag.
 4. Every flag implied by the changed paths (`risk_paths`) or by new dependencies is declared in `Flags:` or recorded as `Waived: <flag> (<reason>)`.
-5. SMALL+ work has acceptance criteria (`AC-n:` lines in `status.md` or `requirements.md`; template placeholders don't count). MEDIUM+ work has a valid `implementation-plan.md` with no task in flight. Either can be skipped only with `Skipped: <gate> (<reason>)`.
-6. Every reviewer required by the class and flags has a PASS in the gate ledger at the current fingerprint, and the latest verdict is PASS, not CHANGES_REQUIRED.
+5. SMALL+ work has acceptance criteria for the current objective: `AC-n:` lines in status.md Now, or in `requirements.md` when it changed this session or Now refers to it (template placeholders don't count). MEDIUM+ work has a valid `implementation-plan.md` with at least one task and none in flight. Either can be skipped only with `Skipped: <gate> (<reason>)`.
+6. Every reviewer required by the class and flags (MEDIUM with any flag adds adversarial QA) has a PASS in the gate ledger at the current fingerprint, and the latest verdict is PASS, not CHANGES_REQUIRED. Only the plugin's own `engineering-os:` agents write the ledger; entries dated in the future are ignored.
+7. Work committed during the session on another local branch is not left behind (finish it there, merge it, or `Skipped: branches (<reason>)`).
 
-Each stop attempt logs a `gate` telemetry event. Documentation-only changes don't trigger the gate: `docs/`, `.eng/`, `.claude/`, Markdown, images, and lockfiles are ignored. The gate fails open on internal errors.
+Each stop attempt logs a `gate` telemetry event. Documentation-only changes don't trigger the gate: the top-level `docs/`, `.eng/`, and `.claude/` trees, Markdown and other prose files, images, and LICENSE/CHANGELOG files are ignored. Manifests and lockfiles (`requirements.txt`, `*.lock`) are source, though lockfiles don't count toward a class's file ceiling. The gate fails open on internal errors.
 
 ## Project state
 

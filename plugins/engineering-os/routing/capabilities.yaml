@@ -53,6 +53,7 @@ budgets:
     retries: 2
     verify: standard
     reviewers: [scope-judge, code-review]
+    reviewers_if_flagged: [adversarial-qa] # PROC-6: MEDIUM work with any risk flag also gets adversarial QA
   LARGE:
     max_agents: 8
     concurrency: 4

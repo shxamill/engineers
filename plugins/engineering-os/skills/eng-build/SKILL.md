@@ -17,6 +17,7 @@ argument-hint: [T-ids | next-wave]
 5. **Integrate worktrees one at a time:** `git merge --no-ff <branch>`, then `eng-verify targeted`.
    - Conflicts: resolve them yourself so both intents survive. Ask the owner, or the human, only when the intents truly conflict.
    - Then `git worktree remove <path>` and `git branch -d <branch>`.
+   - The Stop gate flags commits made this session that remain on another branch. For an abandoned (FAILED) task branch, record `Skipped: branches (<reason>)` in status.md Now, or ask the human to delete it (`git branch -D` is gated).
 6. **Commit per task:** `<type>(<scope>): <summary> [T-n]`, staging only that task's files.
 7. **Update states** in implementation-plan.md (re-run plan-check) and status.md → Active work. New problems become new tasks, not silent fixes.
 
