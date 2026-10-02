@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { parseYaml } from './lib/yaml-lite.mjs';
 import { classify, route, loadRegistry, riskFromDims } from './eng-route.mjs';
 import { detect } from './eng-detect.mjs';
-import { verify, normalize } from './eng-verify.mjs';
+import { verify, normalize, resolveBase } from './eng-verify.mjs';
 import { parsePlan, checkPlan } from './eng-plan-check.mjs';
 import { checkRelease, envPresence } from './eng-release-check.mjs';
 import { metrics } from './eng-status.mjs';
@@ -290,6 +290,15 @@ try {
   git(rv, 'commit', '-qam', 'skip a test');
   s = verify(rv, { level: 'targeted' });
   expect('verify fix R-1: on the default branch, committed work is diffed against the session start, not HEAD', s.base === startHead && s.signals.tamper.some((t) => /skip/.test(t)) && s.verdict === 'FAIL', `${s.base} ${JSON.stringify(s.signals?.tamper)}`);
+  const sb = fixture('stalemaster', { 'a.js': '1\n' });
+  git(sb, 'init', '-q', '-b', 'main'); git(sb, 'config', 'user.email', 't@e.st'); git(sb, 'config', 'user.name', 't'); git(sb, 'add', '-A'); git(sb, 'commit', '-qm', 'old');
+  git(sb, 'branch', 'master');
+  writeFileSync(join(sb, 'a.js'), '2\n'); git(sb, 'commit', '-qam', 'before session');
+  const sbStart = git(sb, 'rev-parse', 'HEAD').stdout.trim();
+  mkdirSync(join(sb, '.eng', 'state'), { recursive: true });
+  writeFileSync(join(sb, '.eng', 'state', 'session-s.json'), JSON.stringify({ head: sbStart, at: Date.now() }));
+  writeFileSync(join(sb, 'a.js'), '3\n'); git(sb, 'commit', '-qam', 'in session');
+  expect('verify fix RV: a stale local master is not the base when working on main', resolveBase(sb) === sbStart, resolveBase(sb));
   const en = fixture('enoent', { 'package.json': JSON.stringify({ scripts: { test: 'node -e 0' } }) });
   initRepo(en);
   writeFileSync(join(en, 'package.json'), JSON.stringify({ scripts: { test: 'node -e "console.error(\'Error: ENOENT: no such file or directory, open fixture.json\'); process.exit(1)"' } }));
@@ -330,6 +339,8 @@ try {
   expect('release fix R-19: TBD / pending / none is not a named approval', !relOk('TBD') && !relOk('pending') && !relOk('none') && relOk('Dana Lee, 2026-10-02'));
   const postOk = (actual) => checkRelease(rp('| Tests | PASS | `npm test` 12 passed |\n', 'Dana Lee, 2026-10-02', 'production', `| Error rate | < 1% | ${actual} |\n`), { stage: 'post-deploy' }).ready;
   expect('release fix R-19: "0.1% (errors flat)" is not a failure', postOk('0.1% (errors flat)'));
+  expect('release fix RV: "Pending sign-off from Jane" / "not approved" are not approvals', !relOk('Pending sign-off from Jane') && !relOk('not approved') && !relOk('TBD (Jane)'));
+  expect('release fix RV: an improvement "(down 12%)" is not a failure', postOk('p95 210ms (down 12%)'));
   expect('release fix R-19: a failing actual is a gap', !postOk('FAIL: 7% 5xx') && !postOk('regressed to 7%'));
 
   // ---------- V3: telemetry metrics ----------

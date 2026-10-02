@@ -75,6 +75,11 @@ const BASH = {
     'npx prettier --write plugins/engineering-os/hooks/scripts/check-handoff.mjs',
     'rm -f build/*.js && npm run build',
     'cp -r .eng/evidence/verify-2026-10-02T10-00-00-000Z /tmp/evidence-backup',
+    // Re-verification (RV-4, RV-NIT): reads with comparisons, output redirected elsewhere, stdout writes, archives.
+    'node -e "console.log(require(\'fs\').readFileSync(\'.eng/evidence/gates.jsonl\',\'utf8\').split(\'\\n\').length>1)"',
+    'python3 -c "import json; print(open(\'.eng/evidence/gates.jsonl\').read().count(\'PASS\'))" > /tmp/out.txt',
+    'node -e "process.stdout.write(require(\'fs\').readFileSync(\'.eng/evidence/verify-latest.json\',\'utf8\'))"',
+    'tar czf /tmp/e.tgz .eng/evidence/verify-2026-10-02T10-00-00-000Z',
     'git status',
     'git diff HEAD~1 --stat',
     'git push -u origin claude/feature',
@@ -135,6 +140,8 @@ const BASH = {
   ask: [
     // R-17: the profile defines what "verified" runs and can disable the completion gate.
     'echo \'{"stopGate": false}\' > docs/engineering/project-profile.json',
+    'cd docs/engineering && echo \'{"stopGate":false}\' > project-profile.json',
+    'cp /tmp/p/project-profile.json docs/engineering/',
     'git push --force origin main',
     'git push -f origin feat',
     'git push -uf origin main',
@@ -245,6 +252,8 @@ const BASH = {
     'node hooks/scripts/check-handoff.mj""s < in.json',
     './hooks/scripts/stop-verify.mjs < in.json',
     'cp -t .eng/evidence/ /tmp/gates.jsonl',
+    'cp /tmp/bk/verify-latest.json .eng/evidence/',
+    'cp /tmp/bk/gates.jsonl .eng/evidence',
     'mv .eng/evidence/gates.jsonl /tmp/old.jsonl',
     // Catastrophic: found untested by the V3 mutation check (guard-catastrophic survived).
     ':(){ :|:& };:',
@@ -706,6 +715,24 @@ try {
   // R-14: only the plugin's own (namespaced) agents write the ledger; a bare same-named agent does not.
   run('check-handoff.mjs', { hook_event_name: 'SubagentStop', agent_type: 'code-reviewer', agent_id: 'bare-1', last_assistant_message: 'STATUS: PASS\nTASK: review\nEVIDENCE: `npm test` → 4 passed' }, { CLAUDE_PROJECT_DIR: w });
   expect('handoff fix R-14: a bare (non-plugin) code-reviewer PASS is not recorded', !ledgerW().some((e) => e.agent_id === 'bare-1'));
+  // Re-verification RV-2: a branch whose content is already in HEAD (squash merge) is not "left behind";
+  // a branch this worktree's HEAD never visited (another worktree or session) is not this session's.
+  gw('checkout', '-q', 'main');
+  gw('merge', '--squash', '-q', 'feat/x'); gw('commit', '-qm', 'squash feat/x');
+  setNow(`- Class: SMALL · Flags: none\n${AC}`, w);
+  evidenceIn(w); handoff('code-reviewer', 'PASS', w);
+  sv = stopW();
+  expect('stop fix RV-2: a squash-merged branch does not block', !/not in the current branch/.test(sv.stderr), sv.stderr);
+  gw('worktree', 'add', '-q', '-b', 'feat/other', join(tmp, 'v4-wt'));
+  writeFileSync(join(tmp, 'v4-wt', 'src', 'c.js'), 'export const c = 1;\n');
+  spawnSync('git', ['add', '-A'], { cwd: join(tmp, 'v4-wt') }); spawnSync('git', ['commit', '-qm', 'other worktree'], { cwd: join(tmp, 'v4-wt') });
+  sv = stopW();
+  expect('stop fix RV-2: a commit in another worktree does not block this session', sv.code === 0, sv.stderr);
+  // RV-3: the status template's parenthetical mention of requirements.md is not a reference.
+  setNow('- Class: SMALL · Flags: none\n- AC-1: <testable criterion>   (SMALL+; MEDIUM+ may keep ACs in requirements.md)', w);
+  expect('stop fix RV-3: the template line does not count as a requirements.md reference', /acceptance criteria/.test(stopW().stderr), stopW().stderr);
+  expect('stop fix RV-3: the block message says how to reference existing criteria', /requirements\.md/.test(stopW().stderr) && /Now/.test(stopW().stderr));
+  gw('checkout', '-q', 'feat/x');
   // PROC-6 in the registry: MEDIUM work with a risk flag also needs adversarial QA.
   gw('checkout', '-q', 'feat/x');
   setNow(`- Class: MEDIUM · Flags: external-input\n${AC}\n- Skipped: plan_complete (fixture)`, w);

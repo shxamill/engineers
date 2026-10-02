@@ -52,7 +52,10 @@ export const isAcceptanceCriterion = (line) => {
 export function hasAcceptanceCriteria(dir, nowText, changed = []) {
   if (nowText.split('\n').some(isAcceptanceCriterion)) return true;
   const req = 'docs/engineering/requirements.md';
-  if (!changed.includes(req) && !/requirements\.md/.test(nowText)) return false;
+  // A reference counts only outside template placeholders and parenthetical notes (the template's own hint
+  // "(… may keep ACs in requirements.md)" is not one).
+  const refs = nowText.split('\n').filter((l) => !/<[^>]+>/.test(l)).map((l) => l.replace(/\([^)]*\)/g, ' ')).join('\n');
+  if (!changed.includes(req) && !/requirements\.md/.test(refs)) return false;
   return readText(join(dir, req)).split('\n').some(isAcceptanceCriterion);
 }
 
@@ -83,9 +86,17 @@ export function changedFiles(dir, sessionId) {
     try { for (const f of git('diff', '--name-only', start.head, 'HEAD').split('\n').filter(Boolean)) all.add(f); } catch {}
     try {
       const since = start.at ? [`--since=@${Math.floor(start.at / 1000) - 1}`] : [];
-      for (const b of git('for-each-ref', '--format=%(refname:short)', 'refs/heads').split('\n').filter(Boolean)) {
-        const files = git('log', '--format=', '--name-only', ...since, b, '--not', 'HEAD', start.head).split('\n').filter(Boolean);
+      // Only branches this worktree's HEAD was on during the session (other worktrees and sessions have their own
+      // HEAD reflog), and only if their changes are not already in HEAD (a squash merge leaves no ancestry).
+      const visited = new Set();
+      for (const l of git('reflog', 'show', '--format=%gs', ...since, 'HEAD').split('\n')) {
+        const m = l.match(/^checkout: moving from (\S+) to (\S+)/);
+        if (m) { visited.add(m[1]); visited.add(m[2]); }
+      }
+      for (const b of git('for-each-ref', '--format=%(refname:short)', 'refs/heads').split('\n').filter((x) => x && visited.has(x))) {
+        const files = [...new Set(git('log', '--format=', '--name-only', ...since, b, '--not', 'HEAD', start.head).split('\n').filter(Boolean))];
         if (!files.length) continue;
+        try { execFileSync('git', ['diff', '--quiet', 'HEAD', b, '--', ...files], { cwd: dir, timeout: 5000, stdio: 'ignore' }); continue; } catch {}
         branches.push(b);
         for (const f of files) all.add(f);
       }
@@ -163,7 +174,7 @@ export function evaluateGates(dir, { sessionId, registry } = {}) {
   // 5. Lifecycle gates by class (registry `gates`), skippable only with a recorded reason.
   const gateOn = (g) => (reg.gates?.[g] || []).includes(cls) && !skipped.has(g);
   if (gateOn('acceptance_criteria') && !hasAcceptanceCriteria(dir, now.now, changed.all))
-    add('acceptance_criteria', 'acceptance criteria: record testable `AC-n` lines in status.md or requirements.md (or `Skipped: acceptance_criteria (<reason>)`)');
+    add('acceptance_criteria', 'acceptance criteria: add testable `- AC-n: …` lines to status.md Now, or, if they are already in docs/engineering/requirements.md, a Now line such as `- Acceptance criteria: AC-1..AC-4 in docs/engineering/requirements.md` (or `Skipped: acceptance_criteria (<reason>)`)');
   if (gateOn('plan_complete')) {
     const planText = readText(join(dir, 'docs', 'engineering', 'implementation-plan.md'));
     const parsed = planText ? parsePlan(planText) : { error: 'missing' };

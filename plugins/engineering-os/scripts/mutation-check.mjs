@@ -49,6 +49,8 @@ export const MUTATIONS = [
   ['guard-paths-canonical', 'hooks/scripts/guard-secrets.mjs', 'PROTECTED_STATE.test(canon) ||', 'false ||', H, 'file-tool paths are normalized (R-7)'],
   ['handoff-namespaced', 'hooks/scripts/check-handoff.mjs', "if (!type.startsWith('engineering-os:')) process.exit(0);", 'void 0;', H, 'only plugin agents write the ledger (R-14)'],
   ['verify-session-base', 'scripts/eng-verify.mjs', "if (start && start !== head && git(root, ['merge-base', '--is-ancestor', start, 'HEAD']) !== null) return start;", 'void 0;', E, 'committed work diffed from the session start (R-1)'],
+  ['gate-branch-visited', 'hooks/scripts/gates.mjs', '.filter((x) => x && visited.has(x))', '.filter((x) => x)', H, "other worktrees' branches are not this session's (RV-2)"],
+  ['guard-copy-into-dir', 'hooks/scripts/guard-bash.mjs', 'if (positional.length >= 2 && /(^|', 'if (false && /(^|', H, 'copying into the evidence dir is checked by file name (RV-1)'],
   ['route-trivial-flags', 'scripts/eng-route.mjs', "=== 'TRIVIAL' && flags.length ? 'SMALL'", "=== 'NEVER' && flags.length ? 'SMALL'", E, 'a risk flag lifts TRIVIAL (R-18)'],
 ];
 

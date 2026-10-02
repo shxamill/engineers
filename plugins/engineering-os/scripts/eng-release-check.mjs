@@ -63,7 +63,7 @@ export function checkRelease(text, { stage = 'readiness', target } = {}) {
   }
   const approval = (text.match(/Human approval:\s*([^·\n_]*)/) || [])[1]?.trim() || '';
   // A named approval, not a status word: "TBD", "pending", "none", "n/a", "required for production" don't count.
-  const unnamed = /^(tbd|tba|todo|pending|none|n\/?a|no|not yet|unknown|required( for production)?|awaiting\b.*|to be (confirmed|decided)|\?+)\.?$/i;
+  const unnamed = /^(tbd|tba|todo|pending|none|n\/?a|no|not yet|unknown|required( for production)?|awaiting\b.*|to be (confirmed|decided)|\?+)\.?$|^(tbd|tba|todo|pending|awaiting|not approved|not yet|unapproved)\b/i;
   if (/prod/.test(tgt) && (placeholder(approval) || unnamed.test(approval) || /required for production/i.test(approval)))
     gaps.push('production release without a named human approval ("Human approval: <who>, <when>")');
   if (stage === 'post-deploy') {
@@ -72,7 +72,7 @@ export function checkRelease(text, { stage = 'readiness', target } = {}) {
     else for (const r of post) {
       if (placeholder(r.actual)) gaps.push(`post-deploy ${r.check || '?'}: no Actual value`);
       // A failing actual: an explicit FAIL/FAILED/DOWN/REGRESSED verdict (not the word "errors" in "errors flat").
-      else if (/^\s*(fail(ed)?|down|regress(ed)?)\b|\b(fail(ed)?|down|regress(ed)?|breach(ed)?)\s*[:(—-]|[(—-]\s*(fail(ed)?|regress(ed)?|down)\b|\bregressed\b|\bFAIL\b/i.test(r.actual))
+      else if (/^\s*(fail(ed)?|down|regress(ed)?)\b|\b(fail(ed)?|regress(ed)?|breach(ed)?)\s*[:(—-]|[(—-]\s*(fail(ed)?|regress(ed)?)\b|\bregressed\b|\bFAIL\b/i.test(r.actual))
         gaps.push(`post-deploy ${r.check || '?'}: ${r.actual}`);
     }
   }

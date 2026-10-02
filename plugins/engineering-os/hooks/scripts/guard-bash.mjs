@@ -33,7 +33,9 @@ const HOOK_RUNNERS = new Set(['node', 'nodejs', 'bun', 'deno']);
 const PROFILE = /(^|\/)docs\/engineering\/project-profile\.json$/i;
 const PROFILE_REASON = 'changing docs/engineering/project-profile.json (it defines what verification runs and can disable the completion gate)';
 // Code that writes: write/append/copy/move/remove calls, open(..., "w"/"a"), or a shell-style > redirect.
-const WRITE_HINT = /\b(write\w*|append\w*|unlink\w*|rename\w*|copy\w*|move\w*|remove\w*|truncate|touch|mkdir\w*|symlink\w*|rmtree|dump)\b|\bopen\s*\([^)]*,\s*['"][^'"]*[wax+]|(?<![=\-<>])>{1,2}(?![=>])/i;
+// (Not a bare ">": in code that is usually a comparison, and a shell redirect of the outer command is checked as
+// a redirect. stdout/stderr writes are output, not file writes.)
+const WRITE_HINT = /\b(?<!(?:stdout|stderr)\.)(write\w*|append\w*|unlink\w*|rename\w*|copy\w*|move\w*|remove\w*|truncate|touch|mkdir\w*|symlink\w*|rmtree|dump)\b|\bopen\s*\([^)]*,\s*['"][^'"]*[wax+>]/i;
 const REDIRECT = /(?:^|[^<\d&])(?:\d|&)?>{1,2}\|?\s*(?:"([^"]+)"|'([^']+)'|([^\s;|&<>()]+))/g;
 const PROTECTED_SAMPLES = ['.eng/evidence/gates.jsonl', '.eng/evidence/verify-latest.json', '.eng/evidence/verify-x/summary.json', '.eng/state/session-x.json', '.eng/telemetry.jsonl'];
 const QUOTED = /"(?:\\.|[^"\\])*"|'[^']*'/g;
@@ -94,6 +96,11 @@ function writesAnyway(head, args, gitSub) {
 // The operands a command writes: copy-like commands write only their destination (copying evidence out is a read).
 const COPIERS = new Set(['cp', 'rsync', 'scp', 'install', 'copy-item', 'cpi', 'copy']);
 function writtenOperands(head, args) {
+  if (head === 'tar' && !args.some((a) => /^-?[a-z]*x/i.test(a) && !a.startsWith('--'))) {
+    const fi = args.findIndex((a) => /^-?[a-z]*f$/i.test(a) && !a.startsWith('--'));
+    return fi >= 0 ? [args[fi + 1]] : []; // create/list: only the archive file is written
+  }
+  if (head === 'zip') return args.filter((a) => !a.startsWith('-')).slice(0, 1);
   if (!COPIERS.has(head)) return args;
   const ti = args.findIndex((a) => a === '-t' || /^--target-directory/.test(a) || /^-destination$/i.test(a));
   const positional = args.filter((a, i) => !a.startsWith('-') && (ti < 0 || i !== ti + 1));
@@ -101,7 +108,11 @@ function writtenOperands(head, args) {
     const dest = args[ti].includes('=') ? args[ti].split('=')[1] : args[ti + 1];
     return [dest, ...positional.map((p) => `${dest}/${p.replace(/\\/g, '/').split('/').pop()}`)];
   }
-  return positional.slice(-1);
+  const dest = positional.slice(-1);
+  // Copying into a directory writes <dir>/<name>: check those names when the destination is a directory we guard.
+  if (positional.length >= 2 && /(^|\/)(\.eng(\/(evidence|state))?|docs\/engineering)\/?$/.test(normPath(dest[0]) + (dest[0].endsWith('/') ? '/' : '')))
+    return [dest[0], ...positional.slice(0, -1).map((p) => `${dest[0].replace(/\/+$/, '')}/${p.replace(/\\/g, '/').split('/').pop()}`)];
+  return dest;
 }
 
 // Executing the ledger or gate hook by hand (reading, copying, or editing its source is fine).
@@ -454,7 +465,7 @@ function analyze(src, depth = 0) {
     if (redirects.some(prot) || (writer && !interp && operands.some(prot)) ||
       (program && payloadWords(program).some(prot) && WRITE_HINT.test(unconcat(program))) || runsHook(head, args))
       denyReasons.add(EVIDENCE_REASON);
-    const profile = (x) => PROFILE.test(normPath(String(x).replace(/["']/g, '')));
+    const profile = (x) => { const w = String(x).replace(/["']/g, ''); return PROFILE.test(normPath(w)) || (cwd && !/^([a-z]:)?[\\/~]/i.test(w) && PROFILE.test(normPath(`${cwd}/${w}`))); };
     if (redirects.some(profile) || (writer && !interp && operands.some(profile)) ||
       (program && payloadWords(program).some(profile) && WRITE_HINT.test(program)))
       askReasons.add(PROFILE_REASON);

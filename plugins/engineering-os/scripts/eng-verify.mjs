@@ -42,7 +42,10 @@ export function resolveBase(root, explicit) {
   if (explicit) return explicit;
   const head = git(root, ['rev-parse', '--verify', 'HEAD'])?.trim();
   if (!head) return null;
+  // On a local default branch, another local default branch (a stale `master` next to `main`) is not a base.
+  const current = git(root, ['rev-parse', '--abbrev-ref', 'HEAD'])?.trim();
   for (const ref of ['origin/HEAD', 'origin/main', 'origin/master', 'main', 'master']) {
+    if (['main', 'master'].includes(current) && ['main', 'master'].includes(ref)) continue;
     const mb = git(root, ['merge-base', 'HEAD', ref])?.trim();
     if (mb && mb !== head) return mb;
   }

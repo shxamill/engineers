@@ -51,3 +51,23 @@ The V3 brief required a review from a context that did not design the change. Th
 See the [migration guide](../v3-migration.md). Two changes users will notice:
 - **2.x evidence and verdicts no longer count.** Run `eng-verify` and the required reviews once after upgrading.
 - **Partial runs no longer satisfy the gate.** The completion gate now wants a full `eng-verify` at the class's level (`--only` and `--skip` runs don't count).
+
+## Second pass: re-verification of the fixes
+
+A new reviewer instance, which had not seen the fixes being made, re-ran reproductions of every finding against `e38cd44`.
+- **Held:** R-1..R-7, R-9, R-11..R-13, R-15, R-16, R-18, R-20, R-22, and R-23 are fixed.
+- **Partly fixed:** R-8, R-10, R-14, R-17, and R-19. R-14 and R-17 were already documented as partial.
+- **Regressions introduced by the fixes:** four SHOULD_FIX.
+
+All are fixed in the commit after `66f6fbb`, each with a regression test:
+
+| ID | Finding | Fix | Guard |
+|---|---|---|---|
+| RV-1 | `cp backup/verify-latest.json .eng/evidence/` was allowed (the R-8 fix checked only the destination directory) | Copying into `.eng/`, `.eng/evidence`, `.eng/state`, or `docs/engineering` is checked as `<dir>/<name>` | bash deny cases; mutation `guard-copy-into-dir` |
+| RV-2 | The session-branch check blocked on another worktree's commits and on squash-merged branches | Only branches this worktree's HEAD visited (HEAD reflog), and only when their changes are not already in HEAD | hook tests `stop fix RV-2` (two); mutation `gate-branch-visited` |
+| RV-3 | Criteria kept in requirements.md by an earlier session blocked a later session; the status template's own hint counted as a reference | References inside placeholders and parentheses don't count. The block message and eng-intake say how to reference existing criteria from Now | hook tests `stop fix RV-3` (two) |
+| RV-4 | Reads were still denied when interpreter code contained `>` (a comparison or an outer redirect) or `stdout.write` | A bare `>` is no longer a write hint; stdout/stderr writes are output | bash allow cases |
+| Minor | `cd`-relative profile writes; `tar`/`zip` of evidence denied; stale `master` picked as the verify base on `main`; "Pending sign-off from Jane" accepted as an approval; "(down 12%)" counted as a failure | All fixed | bash ask/allow cases; engine tests `verify fix RV`, `release fix RV` |
+
+Still open, and documented as heuristic limits: PowerShell `[IO.File]::AppendAllText`, `perl -pi`, and `git stash pop` can write evidence. A forged ledger line within the 60 s future window that also carries a correctly computed fingerprint would count.
+
