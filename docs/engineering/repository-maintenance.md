@@ -14,20 +14,26 @@ Repository maintenance must not change:
 
 Maintenance may add or update repository-governance material such as documentation, issue/PR templates, CODEOWNERS, Dependabot configuration, security-policy files, and other clearly non-product metadata. Any change that could alter execution behavior belongs in a normal engineering change with review and verification.
 
-## Current repository state
+## Repository state snapshot
+
+This is a point-in-time maintenance snapshot, not a live status source. Re-run the repository-state checks during each maintenance cycle.
 
 As of 2026-10-03:
 
 - Repository: shxamill/engineers
 - Default branch: main
 - Visibility: public
-- Product/plugin version: 3.0.0 (documented in the plugin manifest)
-- Open issues: none found during the maintenance audit
-- Open pull requests: none found during the maintenance audit
-- Repository rulesets: none configured at audit time
+- Product/plugin version: 3.0.0
+- Open issues: #4 (GitHub admin hardening)
+- Open pull requests: none
+- Repository rulesets: none configured at snapshot time
+- GitHub Releases: none; no v3.0.0 tag yet
+- Existing branches: main plus two Claude-generated branches under review/cleanup
 - Existing CI: .github/workflows/org-ci.yml
+- Latest main CI observed during this snapshot: green on Ubuntu, Windows, and robustness
 - Existing project engineering records: docs/engineering/
 - Existing contributor guidance: CONTRIBUTING.md
+
 
 The repository contains additional Claude-generated branches. Do not delete a branch merely because it is old; first verify whether it contains unique commits or unfinished work. The audit found branches that diverge from main, so they are intentionally left untouched.
 
