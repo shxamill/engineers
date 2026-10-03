@@ -9,7 +9,7 @@ Engineering OS is an experimental public project. Security reports should be han
 Preferred channels:
 
 1. Use GitHub's private vulnerability reporting / security advisory flow for this repository when available.
-2. Email **veluneproductions@gmail.com** when private reporting is not available.
+2. When private reporting is not available, open a GitHub Issue requesting a private security contact **without including sensitive details**.
 
 Please include the affected version or commit, impact, reproduction steps, and any mitigations you know. Keep secrets and real user data out of the report.
 
