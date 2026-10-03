@@ -712,5 +712,5 @@ Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before changi
 
 - **Bugs and questions:** [GitHub Issues](https://github.com/shxamill/engineers/issues). Please include your Claude Code version (`claude --version`), OS, plugin version (`claude plugin list`), the command you ran, and the full guard or completion-gate message if one appeared.
 - **Discussion:** [GitHub Discussions](https://github.com/shxamill/engineers/discussions).
-- **Security issues:** there is no security policy file yet. Don't post exploit details publicly. Open an issue asking for a private contact.
+- **Security issues:** follow [SECURITY.md](SECURITY.md). Do not post exploit details, credentials, or sensitive proof publicly.
 - **Claude Code itself:** see the [official documentation](https://code.claude.com/docs/en/plugins).
