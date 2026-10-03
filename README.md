@@ -663,7 +663,7 @@ claude plugin eval . --scaffold --trust-plugin --allow-tools Bash Write Edit --a
 - The benchmark caveats above apply: small fixtures, a Sonnet orchestrator, and graders written by the authors. The V2 runs were also single-run and plugin-only.
 - The formatter hook is tested only for its no-op paths; running a real formatter is untested.
 - Token figures come from `claude plugin details` and one first-turn measurement; real usage varies with the request, model, and repository.
-- There is no production usage yet, no tagged release, and no LICENSE file (see [License](#license)).
+- There is no production usage yet and no tagged release.
 
 ## Design principles
 
@@ -706,7 +706,7 @@ Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before changi
 
 ## License
 
-**No license file has been added yet.** The plugin manifest (`plugins/engineering-os/.claude-plugin/plugin.json`) declares `"license": "MIT"`, but the repository contains no `LICENSE` file. Until the maintainer adds one, don't assume any rights beyond what GitHub's terms provide for public repositories.
+**MIT License.** See the repository [LICENSE](LICENSE) file.
 
 ## Support
 
