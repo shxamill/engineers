@@ -40,7 +40,7 @@ Engineering OS behavior changes also follow the stronger requirements in `CONTRI
 
 ## Automated quality
 
-The required repository workflow is `.github/workflows/org-ci.yml`. It currently validates the plugin on Ubuntu and Windows and includes a robustness job covering Windows-style line endings and mutation testing.
+The required repository workflow is `.github/workflows/org-ci.yml`. It validates the plugin on Ubuntu and Windows and includes a robustness job covering Windows-style line endings and mutation testing. Repository-level hygiene is checked separately by `.github/workflows/repository-hygiene.yml`; security analysis is covered by `.github/workflows/codeql.yml`.
 
 Dependency automation is enabled for GitHub Actions through `.github/dependabot.yml`.
 
@@ -60,6 +60,8 @@ This repository currently has **no repository rulesets configured**. GitHub bran
 Because the current repository is owned by a single account, make sure the required-review setting is compatible with the actual team membership before enabling it; otherwise legitimate maintenance PRs can be impossible to merge.
 
 ## Releases
+
+The repository release procedure is documented in [`release-process.md`](release-process.md). A release is tied to an exact validated `main` commit, then a `v<version>` tag and GitHub Release.
 
 Plugin behavior is versioned in `plugins/engineering-os/.claude-plugin/plugin.json` and documented in its `CHANGELOG.md`. Use Git tags/releases for distributable versions when the project moves from experimental to a published release process.
 

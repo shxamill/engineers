@@ -5,6 +5,7 @@ This directory holds the Engineering OS project's **own** engineering state. It 
 | Record | What it holds |
 |---|---|
 | [`status.md`](status.md) | Current objective, phase, risks, assumptions, and next actions |
+| [`release-process.md`](release-process.md) | Release gate, tag, GitHub Release, post-release verification, and rollback procedure |
 | [`decisions.md`](decisions.md) | Decision log: ADRs and every process change (`PROC-n`), each with the evidence that caused it |
 | [`adr/`](adr/) | Architecture decision records: [0001](adr/0001-engineering-organization.md) (V1 organization), [0002](adr/0002-engineering-os-v2.md) (V2 plugin), [0003](adr/0003-engineering-os-v3.md) (V3), [0004](adr/0004-evaluation-model.md) (evaluation model) |
 | [`v3-research.md`](v3-research.md) | V3 research: Claude Code capabilities verified against current docs, agentic engineering, engineering organizations, security, and the measured experiments E-1..E-4 |
