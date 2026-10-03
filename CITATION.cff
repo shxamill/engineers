@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+title: "Engineering OS"
+type: software
+version: "3.0.0"
+license: MIT
+repository-code: "https://github.com/shxamill/engineers"
+url: "https://github.com/shxamill/engineers"
+authors:
+  - name: "shxamill"
