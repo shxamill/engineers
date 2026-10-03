@@ -52,6 +52,7 @@ node plugins/engineering-os/scripts/verify-hooks.mjs
 node plugins/engineering-os/scripts/test-engines.mjs
 claude plugin validate plugins/engineering-os --strict
 claude plugin validate .
+node scripts/verify-repository-hygiene.mjs
 ```
 
 When you change a hook, an engine, or the registry, also run the mutation check. It takes about two minutes:
