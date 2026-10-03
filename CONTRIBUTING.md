@@ -155,4 +155,4 @@ Propose significant or hard-to-reverse changes as an ADR in [`docs/engineering/a
 
 ## Reporting problems
 
-Use [GitHub Issues](https://github.com/shxamill/engineers/issues). For a suspected security vulnerability, don't post exploit details publicly; open an issue asking for a private contact.
+Use [GitHub Issues](https://github.com/shxamill/engineers/issues) for normal defects and work. For a suspected security vulnerability, follow [SECURITY.md](SECURITY.md) instead of posting exploit details publicly.
