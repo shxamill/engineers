@@ -4,6 +4,9 @@
 
 * @shxamill
 
+# Keep the ownership file itself explicitly owned so CODEOWNERS cannot be silently orphaned.
+/.github/CODEOWNERS @shxamill
+
 # High-risk areas should remain explicitly owned even as the team grows.
 .github/ @shxamill
 plugins/engineering-os/hooks/ @shxamill
