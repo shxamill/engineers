@@ -10,7 +10,7 @@ const exists = (p) => fs.existsSync(path.join(root, p));
 function fail(msg) { failures.push(msg); }
 
 function checkInternalLinks(file) {
-  const text = read(file);
+  const text = read(file).replace(/```[\s\S]*?```/g, "");
   const dir = path.dirname(file);
   const re = /\]\((<[^>]+>|[^)\s]+)(?:\s+["'][^)]*["'])?\)/g;
   let m;
