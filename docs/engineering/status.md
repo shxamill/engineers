@@ -1,50 +1,45 @@
 # Engineering Status
 
 ## Now
-- Objective: Engineering OS V3: audit, research, architecture, and implementation (evidence model, classification checks, task DoR/DoD, release check, telemetry, mutation checks, two-arm benchmark)
-- Class: LARGE · Risk: high · Flags: infra, secrets (CI workflow and the secrets guard change)
-- Skipped: plan_complete (V3 work is tracked as audit findings A-01..A-36 and PROC-16..27 rather than a task table)
-- AC-1: Verification and reviewer verdicts are fresh only at the current source-content fingerprint (verify-hooks `stop v3` cases; mutation `gate-fingerprint`)
-- AC-2: Shell and file-tool writes to evidence, ledger, state, and telemetry are denied; reads are allowed (verify-hooks deny/allow cases)
-- AC-3: Changed paths and new dependencies imply risk flags that must be declared or waived; SMALL+ needs acceptance criteria; MEDIUM+ needs a finished plan (verify-hooks `stop v3` cases)
-- AC-4: Every safety mutation in `mutation-check.mjs` is killed by a failing test (35/35), and the suites pass under `core.autocrlf=true`
-- AC-5: A two-arm, three-run benchmark is reported per arm without aggregation or projection (ADR-0004)
-- Phase: F11 verification and fresh-context review of the V3 change
-- Current task: none
-- Next actions: retro + PROC on the run-2 findings ([v3-run2](benchmarks/v3-run2.md): root cause buried in the report on 02, UI quality on 10, ~7× cost); confirm org-ci on Ubuntu, Windows, and the robustness job; owner validates on a real product repository and a live Windows session
-- Blockers: none
+- Objective: Repository maintenance and release hardening after Engineering OS V3.0.0.
+- Product/plugin version: 3.0.0 on `main`.
+- Repository state: V3.0.0 is merged to `main`; the latest observed main CI is green across Ubuntu, Windows, and the robustness job.
+- Current task: close the remaining GitHub-side controls tracked in issue #4 and prepare the first tagged 3.0.0 release.
+- Next actions: enable/verify the main-branch ruleset, private vulnerability reporting, secret scanning + push protection, and CodeQL; validate on a real product repository and in a live Windows session; create the `v3.0.0` tag/release after release gates are satisfied.
+- Blockers: GitHub account/repository settings that are not exposed through the maintenance connector must be completed in GitHub.
 
 ## Phases
-V3: F0 ✓ inspect + baseline (E-1..E-4) · F1 ✓ research ([v3-research](v3-research.md)) · F0 ✓ audit ([v3-audit](v3-audit.md)) · F4 ✓ architecture ([v3-architecture](v3-architecture.md), ADR-0003/0004) · F7–F8 ✓ build · F11 … verify + fresh-context review · benchmark …
+V3 implementation and review: ✓ complete · Repository governance: ✓ in repository · GitHub platform hardening: … admin settings · Release: … first tagged release.
 
 ## Checks
-`node plugins/engineering-os/scripts/validate-org.mjs` · `verify-hooks.mjs` (377) · `test-engines.mjs` (107) · `mutation-check.mjs` (35/35 killed) · `claude plugin validate plugins/engineering-os --strict` · suites also pass with `core.autocrlf=true`. org-ci on GitHub: confirm after push (PROC-14).
+- Plugin validation: `validate-org.mjs`
+- Hook validation: `verify-hooks.mjs`
+- Engine validation: `test-engines.mjs`
+- Mutation validation: `mutation-check.mjs`
+- Claude Code plugin validation: strict manifest/package validation
+- Repository hygiene: internal documentation links, ownership/license consistency, and workflow Action pinning
+- CI: Ubuntu + Windows + robustness/mutation checks
 
-Reviews: this repository's own gate ledger has no reviewer entries for V3. The V3 change was reviewed by an independent fresh-context agent (not the plugin's reviewer agents): 5 BLOCKING and 15 SHOULD_FIX findings, all fixed or documented with regression tests ([record](reviews/v3-fresh-review.md), PROC-28).
+## Reviews
+The V3 change was independently reviewed in a fresh context. The review found 5 BLOCKING and 15 SHOULD_FIX findings; follow-up work recorded the fixes and regression coverage in PROC-28.
 
 ## Planned
-- First tagged release (`v3.0.0`) once CI and the benchmark are reported.
-- License decision (human gate: legal).
-- Exploratory: deterministic checks for risk-flag deliverables (still instruction-only).
+- Complete GitHub platform hardening tracked by issue #4.
+- Validate the plugin against a real product repository and exercise the hooks in a live Windows session.
+- Publish the first `v3.0.0` Git tag and GitHub Release from an exact, validated commit.
+- Continue investigating the benchmark run-2 reporting defect and case 10, and reduce SMALL/MEDIUM overhead.
 
 ## Risks
-- Guards are heuristics running as the same OS user as the agent; evidence protection stops direct writes, not a determined adversary. CI and human review remain the independent checks; the sandbox narrows shell writes (not on native Windows).
-- `risk_paths` patterns can miss unusually named files and can flag harmless ones (which then need a recorded waiver).
-- Hooks are verified in CI on Windows, not in a live Windows session. The sandbox is unsupported on native Windows (use WSL2).
-- Benchmark fixtures are small and the graders are written by this project.
+- Guard hooks are heuristic defense-in-depth and are not a sandbox.
+- Native Windows execution still lacks live-session validation.
+- Benchmark fixtures are small and benchmark graders are maintained by this project.
+- GitHub rules, security settings, and release metadata are platform state, not repository files, so they must be verified separately.
 
 ## Assumptions
-- [ASSUMPTION] Node 18+ is on PATH wherever the plugin runs (hooks and engines need it).
-- [ASSUMPTION] Product repos install the plugin from this marketplace; no OS files are copied into them.
+- Node 18+ remains the plugin compatibility floor unless a deliberate compatibility decision changes it; repository CI uses the pinned Node version in `.node-version`.
+- Product repositories install the plugin from this marketplace; OS internals are not copied into product repositories.
 
-## Completed (last 10)
-- V3 research (CC/AG/ORG/SEC, experiments E-1..E-4), audit (A-01..A-36), architecture, ADR-0003/0004, migration guide, CHANGELOG, version 3.0.0
-- Content fingerprint freshness; protected evidence; ledger with agent_id + fingerprint (PROC-16, PROC-17)
-- Registry v2 (tiers, risk_dimensions, gates, risk_paths, reviewer_gate); validator cross-checks (PROC-18)
-- Router: dimensions, mandatory-first staffing, uncovered report (PROC-19)
-- Stop gate: path-implied flags, AC and plan gates (PROC-20); plan DoR/DoD and retry budget (PROC-21)
-- eng-verify schema 2, CI-bypass and supply-chain detectors (PROC-22); eng-release-check (PROC-23)
-- Telemetry + eng-status.mjs (PROC-24); mutation check + autocrlf CI job (PROC-25); handoff TASK and partial-result rule (PROC-26)
-- Eval case 16 (verification evasion); arm markings for two-arm benchmarks
-- Documentation rebuild (V2): README, plugin manual, CONTRIBUTING, records index; PROC-14, PROC-15
-- V2: plugin + marketplace, registry + router, engines, 16 agents, 24 skills, Stop gate, 15-case benchmark (runs 1–2)
+## Completed (selected)
+- Engineering OS V3.0.0 implementation, review fixes, two-arm benchmark, mutation testing, cross-platform CI.
+- Repository governance: CODEOWNERS, issue/PR templates, Dependabot, SECURITY.md, SUPPORT.md, CODE_OF_CONDUCT.md, MIT LICENSE, editor configuration.
+- Repository ownership metadata canonicalized to `shxamill`; historical Git identity is canonicalized for Git tooling with `.mailmap`.
