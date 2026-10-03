@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: org-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     name: validate engineering-os (${{ matrix.os }})
@@ -20,6 +24,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
       - run: node --version
       - run: node plugins/engineering-os/scripts/validate-org.mjs
       - run: node plugins/engineering-os/scripts/verify-hooks.mjs
@@ -34,6 +43,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
       - name: suites under core.autocrlf=true
         run: |
           printf '[core]\n\tautocrlf = true\n[user]\n\temail = ci@example.com\n\tname = ci\n' > "$RUNNER_TEMP/gitconfig-crlf"
