@@ -187,7 +187,7 @@ Keep these files current:
 - .github/ISSUE_TEMPLATE/*
 - .github/CODEOWNERS
 
-Do not add a license merely to make the repository look complete. The plugin manifest currently says MIT while the repository does not contain a license file; choosing and adding a legal license is a maintainer decision.
+The repository is licensed under MIT. Keep the root [LICENSE](../../LICENSE) file and the plugin manifest's `"license": "MIT"` declaration consistent.
 
 ## Maintenance principle
 
