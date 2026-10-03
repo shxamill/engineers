@@ -1,0 +1,3 @@
+# Canonicalize historical commits created through Claude's tooling to the repository owner.
+# This preserves the original history while making Git's author/committer reporting canonical to @shxamill.
+shxamill <153817213+shxamill@users.noreply.github.com> Claude <noreply@anthropic.com>
