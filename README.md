@@ -690,8 +690,8 @@ Drawn from the project's [status](docs/engineering/status.md), [retrospectives](
 | State | Item |
 |---|---|
 | **Done** | V1 project-local organization ([ADR-0001](docs/engineering/adr/0001-engineering-organization.md)); V2 plugin, registry, engines, and gates ([ADR-0002](docs/engineering/adr/0002-engineering-os-v2.md)); benchmark runs 1–2; V3 evidence model, classification checks, task DoR/DoD, release check, telemetry, mutation checks ([ADR-0003](docs/engineering/adr/0003-engineering-os-v3.md)); fresh-context review fixes; first two-arm benchmark ([v3-run2](docs/engineering/benchmarks/v3-run2.md)); PROC-1 to PROC-28 |
-| **Current** | Validation on a real product repository and in a live Windows session |
-| **Planned** | Fix the reporting defect found by benchmark run 2 (root cause buried in the final report, case 02) and investigate case 10; reduce overhead on SMALL/MEDIUM work; a first tagged release; a license decision by the maintainer |
+| **Current** | Validation on a real product repository and in a live Windows session; repository maintenance and GitHub hardening |
+| **Planned** | Fix the reporting defect found by benchmark run 2 (root cause buried in the final report, case 02) and investigate case 10; reduce overhead on SMALL/MEDIUM work; publish the first tagged release once release gates and repository controls are satisfied |
 | **Exploratory** | Deterministic checks for risk-flag deliverables, which today are enforced by instructions only |
 
 ## Contributing
