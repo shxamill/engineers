@@ -30,6 +30,9 @@ As of 2026-10-03:
 - GitHub Releases: none; no v3.0.0 tag yet
 - Existing branches: main plus two Claude-generated branches under review/cleanup
 - Existing CI: .github/workflows/org-ci.yml
+- Repository hygiene CI: .github/workflows/repository-hygiene.yml
+- CodeQL security CI: .github/workflows/codeql.yml
+- CI Node baseline: exact version in .node-version
 - Latest main CI observed during this snapshot: green on Ubuntu, Windows, and robustness
 - Existing project engineering records: docs/engineering/
 - Existing contributor guidance: CONTRIBUTING.md
@@ -179,6 +182,12 @@ Target controls:
 - squash merge as the normal path.
 
 Because this repository is currently owned by a single GitHub account, do not enable a required-review policy that makes the repository impossible for its actual maintainers to merge. Revisit the policy when the repository moves to an organization with real engineering teams.
+
+## Automated maintenance checks
+
+The repository hygiene workflow checks Markdown link targets, GitHub Action pinning, ownership/license/version invariants, and known stale maintenance text. Keep it green alongside `org-ci`.
+
+CodeQL runs against JavaScript/TypeScript and GitHub Actions workflows. Review findings as repository security work, not as a reason to weaken CI.
 
 ## Community health
 
