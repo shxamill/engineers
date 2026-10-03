@@ -14,7 +14,7 @@ node "${CLAUDE_PLUGIN_ROOT}/scripts/eng-verify.mjs" "${CLAUDE_PROJECT_DIR}" $ARG
 
 Output (paste these lines into your report; full logs stay in the EVIDENCE path):
 ```
-BUILD: PASS · LINT: PASS · TYPECHECK: PASS · TESTS: PASS · E2E: NOT_RUN · SECRETS: PASS · TESTS-TAMPER: PASS · SCOPE: n files · VERDICT: PASS
+BUILD: PASS · LINT: PASS · TYPECHECK: NOT_APPLICABLE (reason) · TESTS: PASS · E2E: NOT_RUN · SECRETS: PASS · TESTS-TAMPER: PASS · SUPPLY-CHAIN: PASS · SCOPE: n files (+a/-r lines) · VERDICT: PASS
 ```
 
 Rules:
@@ -23,4 +23,6 @@ Rules:
 3. **TESTS-TAMPER FAIL** (deleted tests, new skip/only, or fewer assertions): restore the tests, or justify the change explicitly for the human and the reviewer. Never ship it silently.
 4. **SECRETS FAIL:** remove the credential, use an env var, and treat the key as compromised (tell the human).
 5. NO_CHECKS: the project has no runnable checks. Say so, and verify behavior another way (run the program and show its output).
-6. The run writes `.eng/evidence/verify-latest.json`, which satisfies the Stop verification gate. A FAIL verdict still counts as evidence but must be reported as FAIL.
+6. NOT_APPLICABLE only when declared in the profile (`overrides.notApplicable: {"typecheck": "plain JS"}`); otherwise a missing kind is NOT_RUN, a gap to report.
+7. **SUPPLY-CHAIN FAIL** (`permissions: write-all`, `pull_request_target` + PR-head checkout): fix the workflow. WARN (unpinned action, manifest without lockfile): fix or justify. New dependencies listed → declare the `new-dependency` flag (license, maintenance, advisories, pinned version).
+8. The run writes `.eng/evidence/verify-latest.json` (schema 2, bound to the current content fingerprint). A full run at the class's level or higher satisfies the Stop verification gate until source changes; `--only`/`--skip` runs are marked partial and don't. Committing doesn't invalidate it. A FAIL verdict still counts as evidence but must be reported as FAIL. Pass `--task T-n` when verifying a plan task. Never edit evidence files; the guards deny it.

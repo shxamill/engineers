@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 // Tests for the deterministic engines: yaml-lite, router, project adapter, verifier, plan checker.
 // Run: node scripts/test-engines.mjs
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync, unlinkSync, utimesSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { parseYaml } from './lib/yaml-lite.mjs';
-import { classify, route, loadRegistry } from './eng-route.mjs';
+import { classify, route, loadRegistry, riskFromDims } from './eng-route.mjs';
 import { detect } from './eng-detect.mjs';
-import { verify } from './eng-verify.mjs';
+import { verify, normalize, resolveBase } from './eng-verify.mjs';
 import { parsePlan, checkPlan } from './eng-plan-check.mjs';
+import { checkRelease, envPresence } from './eng-release-check.mjs';
+import { metrics } from './eng-status.mjs';
+import { sourceFingerprint } from '../hooks/scripts/lib.mjs';
 
 let count = 0;
 let failures = 0;
@@ -147,13 +150,202 @@ try {
   const ids = reg.capabilities.map((c) => c.id);
   const ok = checkPlan(parsePlan(header + row('T-1', 'backend', '-', 1, 'src/api/**', 'DONE') + row('T-2', 'frontend', 'T-1', 2, 'src/web/**', 'READY') + row('T-3', 'qa', 'T-1', 2, 'e2e/**', 'READY')).tasks, ids);
   expect('plan: valid DAG passes with frontier', ok.errors.length === 0 && ok.frontier.join() === 'T-2,T-3', JSON.stringify(ok));
-  const cyc = checkPlan(parsePlan(header + row('T-1', 'backend', 'T-2', 1, 'a/**', 'READY') + row('T-2', 'backend', 'T-1', 2, 'b/**', 'READY')).tasks, ids);
+  // A missed cycle can recurse without end: catch it so it fails this test instead of crashing the suite.
+  let cyc;
+  try { cyc = checkPlan(parsePlan(header + row('T-1', 'backend', 'T-2', 1, 'a/**', 'READY') + row('T-2', 'backend', 'T-1', 2, 'b/**', 'READY')).tasks, ids); } catch (e) { cyc = { errors: [`threw: ${e.message}`] }; }
   expect('plan: cycle detected', cyc.errors.some((e) => e.startsWith('cycle')), JSON.stringify(cyc.errors));
   const overlapPlan = checkPlan(parsePlan(header + row('T-1', 'backend', '-', 1, 'src/**', 'READY') + row('T-2', 'frontend', '-', 1, 'src/web/**', 'READY')).tasks, ids);
   expect('plan: same-wave file overlap rejected', overlapPlan.errors.some((e) => /share file scope/.test(e)));
   const bad = checkPlan(parsePlan(header + row('T-1', 'wizardry', 'T-9', 1, 'a/**', 'DOING') + row('T-2', 'backend', 'T-1', 2, 'b/**', 'RUNNING')).tasks, ids);
   expect('plan: unknown capability/dep/state and premature RUNNING', ['unknown capability', 'unknown T-9', 'state "DOING"', 'is RUNNING but dependency'].every((k) => bad.errors.some((e) => e.includes(k))), JSON.stringify(bad.errors));
   expect('plan: missing columns reported', /missing column/.test(parsePlan('| ID | Objective |\n|---|---|\n| T-1 | x |').error || ''));
+
+  // ---------- V3: router (dimensions, required-first staffing, registry-driven reviewers) ----------
+  const dimsRoute = route({ request: 'add login', scope: 'small', dims: { 'security-sensitivity': 'high', 'data-sensitivity': 'medium' }, flags: ['auth'] }, reg);
+  expect('route v3: risk = highest dimension, drivers named', dimsRoute.risk === 'high' && dimsRoute.drivers.join() === 'security-sensitivity', JSON.stringify(dimsRoute));
+  expect('route v3: understated --risk rejected', throws(() => route({ request: 'x', scope: 'small', risk: 'low', dims: { 'blast-radius': 'high' } }, reg)));
+  expect('route v3: unknown dimension rejected', throws(() => riskFromDims({ vibes: 'high' }, null, reg)));
+  expect('route v3: --risk above the dims is kept', riskFromDims({ 'blast-radius': 'low' }, 'medium', reg).risk === 'medium');
+  const aiSmall = route({ request: 'add a react component that shows sentiment from the llm', scope: 'small', dims: { 'external-exposure': 'medium' }, flags: ['ai'] }, reg);
+  expect('route v3: mandatory capability takes the single SMALL slot (A-03)', aiSmall.staffed.length === 1 && aiSmall.staffed[0].id === 'ai-ml', JSON.stringify(aiSmall.staffed));
+  const uiSmall = route({ request: 'add an empty state to the notes list page component', scope: 'small', risk: 'low', flags: ['ui'] }, reg);
+  expect('route v3: mandatory capability not allowed at the class is reported uncovered, not staffed', uiSmall.uncovered.includes('ux') && uiSmall.staffed.every((s) => s.id !== 'ux'), JSON.stringify(uiSmall));
+  expect('route v3: reviewers carry their skill from the registry', dimsRoute.reviewers.find((r) => r.id === 'appsec')?.skill === 'eng-secreview' && dimsRoute.reviewers.find((r) => r.id === 'code-review')?.skill === 'eng-review', JSON.stringify(dimsRoute.reviewers));
+  expect('route v3: reviewer capabilities are never staffed as builders', !route({ request: 'code review security review', scope: 'large', risk: 'high', flags: ['auth', 'pii'] }, reg).staffed.some((s) => reg.capabilities.find((c) => c.id === s.id).reviewer_gate));
+  expect('route v3: model comes from the tier map', dimsRoute.staffed.every((s) => ['haiku', 'sonnet', 'opus'].includes(s.model)));
+  expect('route v3: class gates listed (SMALL: acceptance criteria; MEDIUM: + plan)', dimsRoute.gates.join() === 'acceptance_criteria' && route({ request: 'x', scope: 'medium', risk: 'low' }, reg).gates.join() === 'acceptance_criteria,plan_complete');
+
+  // ---------- V3: plan contract (owner, DoR, DoD, retry budget, V2 compatibility) ----------
+  const h3 = '_Class: SMALL_\n| ID | Objective | Capability | Owner | Depends | Wave | Files | AC | Verifier | Risk | Attempts | Evidence | State |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n';
+  const r3 = (id, cap, owner, ac, attempts, evidence, state, deps = '-', wave = 1, files = `src/${id}/**`) => `| ${id} | do ${id} | ${cap} | ${owner} | ${deps} | ${wave} | ${files} | ${ac} | npm test | low | ${attempts} | ${evidence} | ${state} |\n`;
+  const planRoot = fixture('planroot', { '.eng/evidence/verify-1/summary.json': '{}' });
+  const p3 = (rows) => { const p = parsePlan(h3 + rows); return checkPlan(p.tasks, ids, { registry: reg, root: planRoot, cls: p.cls }); };
+  expect('plan v3: valid V3 table passes without migration warning', (() => { const r = p3(r3('T-1', 'backend', 'engineering-os:backend-engineer', 'AC-1', 1, '.eng/evidence/verify-1/summary.json', 'DONE') + r3('T-2', 'frontend', 'orchestrator', 'AC-2', 0, '-', 'READY', 'T-1', 2)); return r.errors.length === 0 && !r.warnings.some((w) => /V2 plan/.test(w)); })());
+  expect('plan v3: owner must match the capability agent', p3(r3('T-1', 'backend', 'engineering-os:frontend-engineer', 'AC-1', 0, '-', 'READY')).errors.some((e) => /owner .* doesn't match/.test(e)));
+  expect('plan v3: Definition of Ready needs AC ids', p3(r3('T-1', 'backend', 'orchestrator', '-', 0, '-', 'READY')).errors.some((e) => /no acceptance criteria/.test(e)));
+  expect('plan v3: DONE without evidence rejected', p3(r3('T-1', 'backend', 'orchestrator', 'AC-1', 1, '-', 'DONE')).errors.some((e) => /DONE without evidence/.test(e)));
+  expect('plan v3: DONE with a missing evidence path rejected', p3(r3('T-1', 'backend', 'orchestrator', 'AC-1', 1, '.eng/evidence/nope/summary.json', 'DONE')).errors.some((e) => /does not exist/.test(e)));
+  expect('plan v3: attempts over the class retry budget while RUNNING rejected', p3(r3('T-1', 'backend', 'orchestrator', 'AC-1', 3, '-', 'RUNNING')).errors.some((e) => /exceed the retry budget \(2\)/.test(e)));
+  expect('plan v3: over budget but FAILED is allowed', p3(r3('T-1', 'backend', 'orchestrator', 'AC-1', 3, '-', 'FAILED')).errors.length === 0);
+  expect('plan v3: V2 tables still pass, with a migration warning', ok.errors.length === 0 && ok.warnings.some((w) => /V2 plan format/.test(w)));
+
+  // ---------- V3: content fingerprint ----------
+  const fpRepo = fixture('fp', { 'src/a.js': 'a\n', 'README.md': '# r\n', '.gitignore': 'ignored/\n.eng/\n' });
+  initRepo(fpRepo);
+  const f0 = sourceFingerprint(fpRepo);
+  writeFileSync(join(fpRepo, 'src', 'a.js'), 'b\n');
+  const f1 = sourceFingerprint(fpRepo);
+  git(fpRepo, 'commit', '-qam', 'change');
+  const f2 = sourceFingerprint(fpRepo);
+  writeFileSync(join(fpRepo, 'README.md'), '# docs only\n');
+  mkdirSync(join(fpRepo, 'ignored'), { recursive: true });
+  writeFileSync(join(fpRepo, 'ignored', 'x.js'), 'x\n');
+  const f3 = sourceFingerprint(fpRepo);
+  writeFileSync(join(fpRepo, 'src', 'new.js'), 'n\n');
+  const f4 = sourceFingerprint(fpRepo);
+  expect('fingerprint: source edit changes it', f0 && f1 && f0 !== f1, `${f0} ${f1}`);
+  expect('fingerprint: committing the same content does not', f1 === f2, `${f1} ${f2}`);
+  expect('fingerprint: docs and ignored files do not', f2 === f3, `${f2} ${f3}`);
+  expect('fingerprint: an untracked source file does', f3 !== f4);
+  const indexPath = join(fpRepo, '.git', 'index');
+  const indexBefore = readFileSync(indexPath);
+  sourceFingerprint(fpRepo);
+  expect('fingerprint: real index untouched (byte for byte)', Buffer.compare(indexBefore, readFileSync(indexPath)) === 0);
+  mkdirSync(join(fpRepo, 'docs'), { recursive: true });
+  writeFileSync(join(fpRepo, 'docs', 'résumé.md'), 'é\n');
+  expect('fingerprint fix R-11: a non-ASCII docs path does not change it', sourceFingerprint(fpRepo) === f4);
+  // R-3: an entry stat-cached in the same second the index was written is "racily clean"; git re-checks its
+  // content only if the temp index keeps the real index's mtime. Simulated deterministically with utimes.
+  const rc = fixture('fprace', { 'src/x.js': 'a\n' });
+  initRepo(rc);
+  const T = new Date(Math.floor(Date.now() / 1000) * 1000 - 10_000);
+  utimesSync(join(rc, 'src', 'x.js'), T, T);
+  git(rc, 'update-index', '--refresh');
+  utimesSync(join(rc, '.git', 'index'), T, T);
+  writeFileSync(join(rc, 'src', 'x.js'), 'b\n');
+  utimesSync(join(rc, 'src', 'x.js'), T, T);
+  const rcRef = fixture('fprace-ref', { 'src/x.js': 'b\n' });
+  initRepo(rcRef);
+  expect('fingerprint fix R-3: a same-size edit in the index-write second is seen', sourceFingerprint(rc) === sourceFingerprint(rcRef), `${sourceFingerprint(rc)} ${sourceFingerprint(rcRef)}`);
+  expect('fingerprint: null outside a git repo (callers fall back to mtime)', sourceFingerprint(fixture('nogit', { 'a.js': 'x' })) === null);
+
+  // ---------- V3: verifier evidence, CI-bypass and supply-chain detection ----------
+  const v3 = fixture('v3', {
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test', lint: 'node -e "process.exit(0)"' } }, null, 2),
+    'package-lock.json': '{}',
+    'src/a.js': 'export const a = 1;\n',
+    'test/a.test.js': "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\ntest('a', () => assert.equal(1, 1));\n",
+    '.gitignore': '.eng/\n',
+    'docs/engineering/project-profile.json': JSON.stringify({ checks: [{ id: 'test', kind: 'test', cmd: 'node --test', cwd: '.' }], overrides: { notApplicable: { typecheck: 'plain JavaScript, no types' } } }),
+    'jest.config.js': 'module.exports = { coverageThreshold: { global: { lines: 90 } } };\n',
+  });
+  initRepo(v3);
+  s = verify(v3, { level: 'targeted', task: 'T-7' });
+  const latest = JSON.parse(readFileSync(join(v3, '.eng', 'evidence', 'verify-latest.json'), 'utf8'));
+  expect('verify v3: evidence schema 2 bound to the fingerprint', latest.schema === 2 && latest.fingerprint === sourceFingerprint(v3) && latest.task === 'T-7' && /^[0-9a-f]{40}$/.test(latest.commit || ''), JSON.stringify(latest).slice(0, 300));
+  expect('verify v3: every requested kind recorded (never silently omitted)', ['test', 'typecheck', 'lint'].every((k) => latest.checks.some((c) => c.kind === k)), JSON.stringify(latest.checks));
+  expect('verify v3: NOT_APPLICABLE only when declared, with its reason', s.lines.includes('TYPECHECK: NOT_APPLICABLE (plain JavaScript, no types)') && latest.checks.find((c) => c.kind === 'typecheck').status === 'NOT_APPLICABLE', s.lines.join('\n'));
+  expect('verify v3: summary.json in the evidence dir agrees', JSON.parse(readFileSync(join(v3, latest.evidence, 'summary.json'), 'utf8')).fingerprint === latest.fingerprint);
+  const pkg = JSON.parse(readFileSync(join(v3, 'package.json'), 'utf8'));
+  pkg.scripts.test = 'node --test || true';
+  pkg.dependencies = { 'left-pad': '^1.3.0' };
+  writeFileSync(join(v3, 'package.json'), JSON.stringify(pkg, null, 2));
+  writeFileSync(join(v3, 'jest.config.js'), 'module.exports = { coverageThreshold: { global: { lines: 40 } } };\n');
+  mkdirSync(join(v3, '.github', 'workflows'), { recursive: true });
+  writeFileSync(join(v3, '.github', 'workflows', 'ci.yml'), 'on: [push]\njobs:\n  t:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm test\n        continue-on-error: true\n');
+  s = verify(v3, { only: ['lint'] });
+  const sig = JSON.parse(readFileSync(join(v3, '.eng', 'evidence', 'verify-latest.json'), 'utf8')).signals;
+  expect('verify v3: "|| true" on a test command => TESTS-TAMPER FAIL', s.verdict === 'FAIL' && sig.tamper.some((t) => /\|\| true/.test(t)), JSON.stringify(sig.tamper));
+  expect('verify v3: continue-on-error added => TESTS-TAMPER FAIL', sig.tamper.some((t) => /continue-on-error/.test(t)));
+  expect('verify v3: lowered coverage threshold => WARN', sig.warn.some((w) => /coverage threshold lowered .*90 → 40/.test(w)), JSON.stringify(sig.warn));
+  expect('verify v3: unpinned action => SUPPLY-CHAIN WARN', sig.supplyChain.warn.some((w) => /actions\/checkout@v4/.test(w)), JSON.stringify(sig.supplyChain));
+  expect('verify v3: manifest changed without its lockfile => WARN', sig.supplyChain.warn.some((w) => /lockfile/.test(w)));
+  expect('verify v3: new dependency detected for the new-dependency flag', sig.newDependencies.includes('npm:left-pad'), JSON.stringify(sig.newDependencies));
+  writeFileSync(join(v3, '.github', 'workflows', 'pr.yml'), 'on: pull_request_target\njobs:\n  t:\n    permissions: write-all\n    steps:\n      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n');
+  verify(v3, { only: ['lint'] });
+  const sc = JSON.parse(readFileSync(join(v3, '.eng', 'evidence', 'verify-latest.json'), 'utf8')).signals.supplyChain;
+  expect('verify v3: write-all and pull_request_target + PR-head checkout => SUPPLY-CHAIN FAIL', sc.fail.some((f) => /write-all/.test(f)) && sc.fail.some((f) => /pull_request_target/.test(f)), JSON.stringify(sc));
+  expect('verify v3: SHA-pinned action is not flagged', !sc.warn.some((w) => /3d3c42e/.test(w)));
+
+  // ---------- V3 review fixes: router and release ----------
+  const tf = route({ request: 'rename the login button label', scope: 'trivial', risk: 'low', flags: ['auth'] }, reg);
+  expect('route fix R-18: a risk flag lifts TRIVIAL to SMALL (the gate blocks TRIVIAL with flags)', tf.class === 'SMALL' && tf.reviewers.some((r) => r.id === 'code-review'), JSON.stringify({ c: tf.class, r: tf.reviewers }));
+  expect('route fix R-23: --risk is case-insensitive', route({ request: 'x', scope: 'small', risk: 'HIGH' }, reg).risk === 'high');
+  const mf = route({ request: 'parse uploaded csv files', scope: 'medium', risk: 'medium', flags: ['external-input'] }, reg);
+  expect('route: MEDIUM with a risk flag adds adversarial QA (PROC-6)', mf.reviewers.some((r) => r.id === 'adversarial-qa'), JSON.stringify(mf.reviewers));
+  expect('route: MEDIUM without flags has no adversarial QA', !route({ request: 'x', scope: 'medium', risk: 'low' }, reg).reviewers.some((r) => r.id === 'adversarial-qa'));
+
+  // ---------- V3 review fixes: verifier ----------
+  const rv = fixture('rv', {
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }, null, 2),
+    'src/s.js': 'export const s = (x) => x;\n',
+    'test/s.test.js': "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { s } from '../src/s.js';\ntest('identity', () => assert.equal(s(1), 1));\ntest('other', () => assert.equal(s(2), 2));\n",
+    '.gitignore': '.eng/\n',
+  });
+  initRepo(rv);
+  const startHead = git(rv, 'rev-parse', 'HEAD').stdout.trim();
+  mkdirSync(join(rv, '.eng', 'state'), { recursive: true });
+  writeFileSync(join(rv, '.eng', 'state', 'session-s1.json'), JSON.stringify({ head: startHead, at: Date.now() }));
+  writeFileSync(join(rv, 'test', 's.test.js'), readFileSync(join(rv, 'test', 's.test.js'), 'utf8').replace("test('other'", "test.skip('other'"));
+  git(rv, 'commit', '-qam', 'skip a test');
+  s = verify(rv, { level: 'targeted' });
+  expect('verify fix R-1: on the default branch, committed work is diffed against the session start, not HEAD', s.base === startHead && s.signals.tamper.some((t) => /skip/.test(t)) && s.verdict === 'FAIL', `${s.base} ${JSON.stringify(s.signals?.tamper)}`);
+  const sb = fixture('stalemaster', { 'a.js': '1\n' });
+  git(sb, 'init', '-q', '-b', 'main'); git(sb, 'config', 'user.email', 't@e.st'); git(sb, 'config', 'user.name', 't'); git(sb, 'add', '-A'); git(sb, 'commit', '-qm', 'old');
+  git(sb, 'branch', 'master');
+  writeFileSync(join(sb, 'a.js'), '2\n'); git(sb, 'commit', '-qam', 'before session');
+  const sbStart = git(sb, 'rev-parse', 'HEAD').stdout.trim();
+  mkdirSync(join(sb, '.eng', 'state'), { recursive: true });
+  writeFileSync(join(sb, '.eng', 'state', 'session-s.json'), JSON.stringify({ head: sbStart, at: Date.now() }));
+  writeFileSync(join(sb, 'a.js'), '3\n'); git(sb, 'commit', '-qam', 'in session');
+  expect('verify fix RV: a stale local master is not the base when working on main', resolveBase(sb) === sbStart, resolveBase(sb));
+  const en = fixture('enoent', { 'package.json': JSON.stringify({ scripts: { test: 'node -e 0' } }) });
+  initRepo(en);
+  writeFileSync(join(en, 'package.json'), JSON.stringify({ scripts: { test: 'node -e "console.error(\'Error: ENOENT: no such file or directory, open fixture.json\'); process.exit(1)"' } }));
+  s = verify(en, { only: ['test'] });
+  expect('verify fix R-2: a failing test that mentions ENOENT is FAIL, not NOT_RUN', s.results[0]?.status === 'FAIL' && s.verdict === 'FAIL', JSON.stringify(s.results));
+  s = verify(rv, { level: 'targeted', skip: ['test'] });
+  expect('verify fix R-9: --skip is recorded as partial and reported as skipped', s.partial === true && s.lines.some((l) => /^TESTS: NOT_RUN \(skipped/.test(l)), s.lines.join('\n'));
+  s = verify(`${rv}/`, { only: ['lint'] });
+  expect('verify fix R-15: evidence path stays relative with a trailing slash', !s.evidence.startsWith('/') && s.evidence.startsWith('.eng/evidence/verify-'), s.evidence);
+  const pe = fixture('preexisting-node', {
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }, null, 2),
+    'test/x.test.js': "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\ntest('broken', () => assert.equal(1, 2));\n",
+  });
+  initRepo(pe);
+  const peBase = git(pe, 'rev-parse', 'HEAD').stdout.trim();
+  writeFileSync(join(pe, 'README.md'), '# readme\n');
+  writeFileSync(join(pe, 'extra.js'), 'export const e = 1;\n');
+  s = verify(pe, { only: ['test'], base: peBase });
+  // Windows CI (746cd61): node prints locations as escaped strings and %-encoded file URLs; both must fold to <root>.
+  const winOut = (r) => `not ok 1 - broken\n  location: '${r.replaceAll('\\', '\\\\')}\\\\test\\\\x.test.js:3:1'\n  at TestContext.<anonymous> (file:///${r.replaceAll('\\', '/').replace('~', '%7E')}/test/x.test.js:3:30)\n  duration_ms: 1.23\n`;
+  const nRoot = normalize(winOut('C:\\Users\\RUNNER~1\\Temp\\proj'), 'C:\\Users\\RUNNER~1\\Temp\\proj');
+  const nBase = normalize(winOut('C:\\Users\\RUNNER~1\\Temp\\proj\\.eng\\baseline\\wt-1'), 'C:\\Users\\RUNNER~1\\Temp\\proj\\.eng\\baseline\\wt-1');
+  expect('verify fix: Windows paths (escaped and file:// URL) normalize equally in project and baseline', [...nRoot].every((l) => nBase.has(l)), JSON.stringify([...nRoot].filter((l) => !nBase.has(l))));
+  expect('verify fix R-16: node --test duration lines do not hide a pre-existing failure', s.results[0]?.status === 'PRE_EXISTING', JSON.stringify(s.results[0]?.tail));
+
+  // ---------- V3: release readiness ----------
+  const rp = (rows, approval = '<who, when>', target = 'production', post = '') => `# Release Plan — 1.2.0 → ${target}\n_Owner: x · Human approval: ${approval}_\n\n## Readiness checklist (every line needs evidence)\n| Item | Status | Evidence |\n|---|---|---|\n${rows}\n## Post-deploy verification\n| Check | Expected | Actual |\n|---|---|---|\n${post}`;
+  const good = '| Tests green | PASS | CI run 42 |\n| Migrations | N/A | no schema change |\n';
+  expect('release: PASS rows with evidence + named approval => READY', checkRelease(rp(good, 'Sam, 2026-10-02')).ready);
+  expect('release: production without a named approval => NOT_READY', checkRelease(rp(good)).gaps.some((g) => /human approval/.test(g)));
+  expect('release: staging needs no approval', checkRelease(rp(good, '<who, when>', 'staging')).ready);
+  expect('release: empty status or PASS without evidence => gaps', checkRelease(rp('| Tests | PASS | |\n| Monitoring | | |\n', 'Sam')).gaps.length === 2);
+  expect('release: post-deploy stage needs actual values, none failing', checkRelease(rp(good, 'Sam', 'production', '| Smoke | pass | pass |\n| Errors | ≤1% | FAILED 7% |\n'), { stage: 'post-deploy' }).gaps.some((g) => /Errors/.test(g)));
+  const envDir = fixture('envcheck', { '.env': 'API_KEY=sekret-value\nEMPTY=\n', '.env.example': 'ONLY_EXAMPLE=x\n' });
+  const env = envPresence(envDir, ['API_KEY', 'EMPTY', 'ONLY_EXAMPLE']);
+  expect('release: env presence by name, never value; example files ignored', env.map((e) => e.status).join() === 'PRESENT,MISSING,MISSING' && !JSON.stringify(env).includes('sekret'), JSON.stringify(env));
+  const relOk = (approval) => checkRelease(rp('| Tests | PASS | `npm test` 12 passed |\n', approval)).ready;
+  expect('release fix R-19: TBD / pending / none is not a named approval', !relOk('TBD') && !relOk('pending') && !relOk('none') && relOk('Dana Lee, 2026-10-02'));
+  const postOk = (actual) => checkRelease(rp('| Tests | PASS | `npm test` 12 passed |\n', 'Dana Lee, 2026-10-02', 'production', `| Error rate | < 1% | ${actual} |\n`), { stage: 'post-deploy' }).ready;
+  expect('release fix R-19: "0.1% (errors flat)" is not a failure', postOk('0.1% (errors flat)'));
+  expect('release fix RV: "Pending sign-off from Jane" / "not approved" are not approvals', !relOk('Pending sign-off from Jane') && !relOk('not approved') && !relOk('TBD (Jane)'));
+  expect('release fix RV: an improvement "(down 12%)" is not a failure', postOk('p95 210ms (down 12%)'));
+  expect('release fix R-19: a failing actual is a gap', !postOk('FAIL: 7% 5xx') && !postOk('regressed to 7%'));
+
+  // ---------- V3: telemetry metrics ----------
+  const mt = metrics([{ event: 'route', class: 'SMALL' }, { event: 'spawn', agent: 'code-reviewer', agent_id: 'a1' }, { event: 'spawn', agent: 'debugger', agent_id: 'a2' }, { event: 'handoff', agent: 'code-reviewer', agent_id: 'a1', status: 'PASS', accepted: true }, { event: 'verify', verdict: 'FAIL', tamper: 1 }, { event: 'gate', result: 'block', missing: ['review'] }, { event: 'guard', decision: 'deny' }]);
+  expect('metrics: spawns per request, active agents, failures, gate reasons', mt.agentsPerRequest === 2 && mt.activeAgents.join() === 'debugger' && mt.verifyFailures === 1 && mt.tamperFindings === 1 && mt.gateBlockReasons.review === 1 && mt.guardDenies === 1, JSON.stringify(mt));
 } finally {
   rmSync(tmp, { recursive: true, force: true });
 }

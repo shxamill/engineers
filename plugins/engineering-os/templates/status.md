@@ -3,6 +3,9 @@
 ## Now
 - Objective: <one line>
 - Class: <TRIVIAL..CRITICAL> · Risk: <level> · Flags: <list | none>
+- Waived: <flag> (<why the path-implied flag does not apply>)   ← only when needed
+- Skipped: <acceptance_criteria|plan_complete> (<reason>)      ← only when needed
+- AC-1: <testable criterion>   (SMALL+; MEDIUM+ may keep ACs in requirements.md)
 - Phase: <F0 intake … F16 retro | idle>
 - Current task: <T-id — summary>
 - Next actions: <1–3 items>

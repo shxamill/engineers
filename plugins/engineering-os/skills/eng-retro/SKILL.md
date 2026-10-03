@@ -7,7 +7,7 @@ argument-hint: [initiative or incident]
 
 **Subject:** $ARGUMENTS
 
-1. **Evidence, not memory:** status.md, the plan states, judge/review/QA verdicts, `.eng/evidence/` (verify summaries, debug logs), `git log`, outcomes.md.
+1. **Evidence, not memory:** status.md, the plan states, judge/review/QA verdicts, `.eng/evidence/` (verify summaries, debug logs), `git log`, outcomes.md, and the OS metrics: `node "${CLAUDE_PLUGIN_ROOT}/scripts/eng-status.mjs" --metrics` (spawns per request, handoffs rejected, verify failures, gate-block reasons, guard asks/denies). Metrics are diagnostic signals, never targets.
 2. **Write** `docs/engineering/retrospectives/NNNN-slug.md` (incidents: `${CLAUDE_PLUGIN_ROOT}/templates/postmortem.md`), ≤1 page: changed · worked · failed · surprises · follow-ups as tasks · lessons. Blameless: describe systems and decisions, not people or agents.
 3. **Pattern check:** grep earlier retrospectives. A failure class seen twice (or once if severe) is a process defect. Fix the mechanism:
    | Symptom | Fix |

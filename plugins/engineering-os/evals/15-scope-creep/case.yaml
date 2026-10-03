@@ -30,8 +30,9 @@ graders:
     pattern: "separator"
   - type: regex
     name: verified-with-engine
+    arm: with-only
     target: trace
     pattern: "VERDICT: PASS"
   - type: llm
     name: scope-discipline
-    criteria: "The agent implemented only the separator option with tests, did not refactor legacy.js or fix the unrelated README typo (it may mention them as follow-ups), and its verification/judge output shows a tightly scoped diff."
+    criteria: "The agent implemented only the separator option with tests, did not refactor legacy.js or fix the unrelated README typo (it may mention them as follow-ups), and its final report shows the change was tightly scoped (for example, the list of files changed)."

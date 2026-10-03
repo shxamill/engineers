@@ -4,9 +4,10 @@
 // A heuristic safety net, not a sandbox. It lexes quotes, escapes, comments, heredocs, chains,
 // pipes, $(...) and backticks (never inside single quotes or quoted-delimiter heredocs), recurses
 // into sh -c / pwsh -Command / cmd /c / eval payloads and xargs, then applies per-segment checks.
-import { readInput, decide, isSecretPath, mentionsSecretPath, findSecret } from './lib.mjs';
+import { readInput, decide, isSecretPath, mentionsSecretPath, findSecret, PROTECTED_STATE, PROTECTED_HOOKS, projectDir, logEvent } from './lib.mjs';
 
 const input = readInput();
+const EVIDENCE_REASON = 'writing Engineering OS evidence/state or running its gate hooks by hand (only eng-verify and the hooks write verify evidence, the gate ledger, .eng/state, and telemetry)';
 const PS = input?.tool_name === 'PowerShell'; // PowerShell: backslash is literal, backtick escapes
 const denyReasons = new Set();
 const askReasons = new Set();
@@ -27,8 +28,100 @@ const GIT_READ_ONLY = new Set(['log', 'show', 'diff', 'status', 'blame', 'grep',
 const SECRET_SAFE = new Set(['source', '.', 'ls', 'stat', 'test', '[', '[[', 'touch', 'chmod', 'chown', 'cp', 'mv', 'echo', 'printf',
   'docker', 'docker-compose', 'podman', 'dotenv', 'ssh', 'scp', 'sftp', 'ssh-add', 'rsync', 'test-path', 'get-item', 'copy-item', 'move-item']);
 const HEREDOC = /^<<-?\s*(['"]?)([A-Za-z_][\w-]*)\1/;
+const NAV = new Set(['cd', 'pushd', 'popd', 'chdir', 'set-location', 'sl']);
+const HOOK_RUNNERS = new Set(['node', 'nodejs', 'bun', 'deno']);
+const PROFILE = /(^|\/)docs\/engineering\/project-profile\.json$/i;
+const PROFILE_REASON = 'changing docs/engineering/project-profile.json (it defines what verification runs and can disable the completion gate)';
+// Code that writes: write/append/copy/move/remove calls, open(..., "w"/"a"), or a shell-style > redirect.
+// (Not a bare ">": in code that is usually a comparison, and a shell redirect of the outer command is checked as
+// a redirect. stdout/stderr writes are output, not file writes.)
+const WRITE_HINT = /\b(?<!(?:stdout|stderr)\.)(write\w*|append\w*|unlink\w*|rename\w*|copy\w*|move\w*|remove\w*|truncate|touch|mkdir\w*|symlink\w*|rmtree|dump)\b|\bopen\s*\([^)]*,\s*['"][^'"]*[wax+>]/i;
+const REDIRECT = /(?:^|[^<\d&])(?:\d|&)?>{1,2}\|?\s*(?:"([^"]+)"|'([^']+)'|([^\s;|&<>()]+))/g;
+const PROTECTED_SAMPLES = ['.eng/evidence/gates.jsonl', '.eng/evidence/verify-latest.json', '.eng/evidence/verify-x/summary.json', '.eng/state/session-x.json', '.eng/telemetry.jsonl'];
 const QUOTED = /"(?:\\.|[^"\\])*"|'[^']*'/g;
 const count = (s, ch) => s.split(ch).length - 1;
+
+// ---------- evidence protection helpers (V3, A-02; review R-5, R-6, R-8) ----------
+function normPath(p) {
+  const abs = /^\//.test(p);
+  const out = [];
+  for (const part of p.replace(/\\/g, '/').split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..' && out.length && out[out.length - 1] !== '..') out.pop();
+    else out.push(part);
+  }
+  return (abs ? '/' : '') + out.join('/');
+}
+const unconcat = (text) => text.replace(/(['"])\s*\+\s*\1/g, ''); // 'gat'+'es.jsonl' → 'gates.jsonl'
+const globSeg = (g) => g.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]').replace(/\[!/g, '[^');
+// A word names protected OS state: directly, relative to a `cd` earlier in the command, or as a glob that matches it.
+function isProtected(word, cwd = '') {
+  const w = unconcat(String(word || '')).replace(/["']/g, '');
+  if (!w) return false;
+  const cands = [w];
+  if (cwd && !/^([a-z]:)?[\\/~]/i.test(w)) cands.push(`${cwd}/${w}`);
+  for (const c of cands.map(normPath)) {
+    if (PROTECTED_STATE.test(c)) return true;
+    if (/[*?[]/.test(c) && /\.eng|eviden|gate|verif|telem|state/i.test(c)) {
+      const segs = c.split('/');
+      for (const sample of PROTECTED_SAMPLES) {
+        const k = sample.split('/').length;
+        if (segs.length >= k && new RegExp(`^${segs.slice(-k).map(globSeg).join('/')}$`, 'i').test(sample)) return true;
+      }
+    }
+  }
+  return false;
+}
+const payloadWords = (text) => unconcat(text).split(/[\s'"`(),;=+{}[\]]+/).filter(Boolean);
+// Simple assignments anywhere in the command (F=…; PowerShell $p = "…"+"…"), so `>> $F` is checked as its value.
+function collectVars(cmd) {
+  const vars = new Map();
+  if (PS) for (const m of cmd.matchAll(/\$([A-Za-z_]\w*)\s*=\s*([^;\n]+)/g)) vars.set(m[1], unconcat(m[2].trim()).replace(/^["']|["']$/g, ''));
+  else for (const m of cmd.matchAll(/(?:^|[\s;&|(])(?:export\s+|local\s+|declare\s+)?([A-Za-z_]\w*)=("([^"]*)"|'([^']*)'|[^\s;&|)]*)/g)) vars.set(m[1], m[3] ?? m[4] ?? m[2]);
+  for (const [k, v] of vars) if (/\$\(|`/.test(v)) vars.delete(k); // command substitutions are analyzed where they occur
+  return vars;
+}
+const expandVars = (text, vars) => (vars.size ? text.replace(/\$\{?([A-Za-z_]\w*)\}?/g, (m, n) => (vars.has(n) ? vars.get(n) : m)) : text);
+// "Read-only" tools that write when given these options or programs.
+function writesAnyway(head, args, gitSub) {
+  if (head === 'sort') return args.some((a) => /^-[a-z]*o/.test(a) || a.startsWith('--output'));
+  if (head === 'uniq') return args.filter((a) => !a.startsWith('-')).length >= 2;
+  if (head === 'sed') return args.some((a) => /(^|[;\s{}/])[wW]\s+\S/.test(a));
+  if (head === 'find') return args.some((a) => /^-(fprint0?|fprintf|fls)$/.test(a));
+  if (head === 'git' && gitSub === 'diff') return args.some((a) => a.startsWith('--output'));
+  if (head === 'xxd') return args.some((a) => /^-r/.test(a));
+  if (head === 'awk') return args.some((a) => /print[^;]*>|printf[^;]*>|system\s*\(|\|\s*getline/.test(a));
+  return false;
+}
+// The operands a command writes: copy-like commands write only their destination (copying evidence out is a read).
+const COPIERS = new Set(['cp', 'rsync', 'scp', 'install', 'copy-item', 'cpi', 'copy']);
+function writtenOperands(head, args) {
+  if (head === 'tar' && !args.some((a) => /^-?[a-z]*x/i.test(a) && !a.startsWith('--'))) {
+    const fi = args.findIndex((a) => /^-?[a-z]*f$/i.test(a) && !a.startsWith('--'));
+    return fi >= 0 ? [args[fi + 1]] : []; // create/list: only the archive file is written
+  }
+  if (head === 'zip') return args.filter((a) => !a.startsWith('-')).slice(0, 1);
+  if (!COPIERS.has(head)) return args;
+  const ti = args.findIndex((a) => a === '-t' || /^--target-directory/.test(a) || /^-destination$/i.test(a));
+  const positional = args.filter((a, i) => !a.startsWith('-') && (ti < 0 || i !== ti + 1));
+  if (ti >= 0) {
+    const dest = args[ti].includes('=') ? args[ti].split('=')[1] : args[ti + 1];
+    return [dest, ...positional.map((p) => `${dest}/${p.replace(/\\/g, '/').split('/').pop()}`)];
+  }
+  const dest = positional.slice(-1);
+  // Copying into a directory writes <dir>/<name>: check those names when the destination is a directory we guard.
+  if (positional.length >= 2 && /(^|\/)(\.eng(\/(evidence|state))?|docs\/engineering)\/?$/.test(normPath(dest[0]) + (dest[0].endsWith('/') ? '/' : '')))
+    return [dest[0], ...positional.slice(0, -1).map((p) => `${dest[0].replace(/\/+$/, '')}/${p.replace(/\\/g, '/').split('/').pop()}`)];
+  return dest;
+}
+
+// Executing the ledger or gate hook by hand (reading, copying, or editing its source is fine).
+function runsHook(head, args) {
+  if (PROTECTED_HOOKS.test(head)) return true;
+  if (!HOOK_RUNNERS.has(head) || args.some((a) => a === '--check' || a === '-c')) return false;
+  const script = (head === 'deno' && args[0] === 'run' ? args.slice(1) : args).find((a) => !a.startsWith('-'));
+  return Boolean(script) && PROTECTED_HOOKS.test(script.replace(/["']/g, ''));
+}
 
 // ---------- lexing ----------
 function heredocEnd(src, from, delim) {
@@ -286,6 +379,7 @@ function analyze(src, depth = 0) {
   const subs = [];
   const segs = lex(src, subs);
   for (const s of subs) analyze(s, depth + 1);
+  let cwd = ''; // directory set by an earlier `cd` in this command (relative to the project)
   segs.forEach((seg, idx) => {
     const raw = tokenize(seg.text);
     if (raw.length === 1 && /^(printenv|env|export|set)$/.test(raw[0])) askReasons.add('dumping the whole environment (may contain secrets)');
@@ -359,6 +453,28 @@ function analyze(src, depth = 0) {
     }
     if (/^(get-childitem|gci|dir|ls)$/.test(head) && args.some((a) => /^env:\\?$/i.test(a))) askReasons.add('dumping the whole environment (may contain secrets)');
 
+    // Evidence integrity (V3, A-02): verification evidence, the gate ledger, session state, and telemetry
+    // are written only by eng-verify and the hooks. Reading them is fine; redirecting into them, writing them
+    // with a file command, writing them from interpreter code, or running the ledger/gate hooks by hand is not.
+    const redirects = [...seg.text.matchAll(REDIRECT)].map((m) => m[1] || m[2] || m[3]);
+    const writer = !(readOnly && !writesAnyway(head, args, gitSub)) && !prose && !NAV.has(head);
+    const interp = INTERPRETERS.has(head) && !SHELLS.has(head) && !POWERSHELLS.has(head);
+    const operands = writtenOperands(head, args).filter(Boolean).flatMap((a) => (a.includes('=') ? [a, a.slice(a.indexOf('=') + 1)] : [a]));
+    const program = interp ? `${args.join(' ')}\n${seg.heredoc}\n${prevPayload}` : '';
+    const prot = (x) => isProtected(x, cwd);
+    if (redirects.some(prot) || (writer && !interp && operands.some(prot)) ||
+      (program && payloadWords(program).some(prot) && WRITE_HINT.test(unconcat(program))) || runsHook(head, args))
+      denyReasons.add(EVIDENCE_REASON);
+    const profile = (x) => { const w = String(x).replace(/["']/g, ''); return PROFILE.test(normPath(w)) || (cwd && !/^([a-z]:)?[\\/~]/i.test(w) && PROFILE.test(normPath(`${cwd}/${w}`))); };
+    if (redirects.some(profile) || (writer && !interp && operands.some(profile)) ||
+      (program && payloadWords(program).some(profile) && WRITE_HINT.test(program)))
+      askReasons.add(PROFILE_REASON);
+    if (NAV.has(head)) {
+      const target = args.find((a) => !a.startsWith('-'));
+      if (!target || target === '-' || head === 'popd') cwd = '';
+      else cwd = normPath(/^([a-z]:)?[\\/~]/i.test(target) ? target : cwd ? `${cwd}/${target}` : target);
+    }
+
     if (!readOnly && !prose) {
       activeSegments.push(seg.text);
       if (INTERPRETERS.has(head) && !SHELLS.has(head) && !POWERSHELLS.has(head)) activeSegments.push(`${seg.heredoc}\n${prevPayload}`);
@@ -391,7 +507,7 @@ try {
   if (cmd.length > 100000) askReasons.add('command too long to analyze');
   else {
     if (/:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/.test(cmd)) denyReasons.add('fork bomb');
-    analyze(cmd);
+    analyze(expandVars(cmd, collectVars(cmd)));
     checkActive();
     const leaked = findSecret(cmd);
     if (leaked) askReasons.add(`command contains what looks like a real ${leaked} (reference an environment variable instead)`);
@@ -400,8 +516,15 @@ try {
   askReasons.add(`guard-bash could not analyze this command (${e?.message || e}); human review required`);
 }
 
-if (denyReasons.size)
+// Telemetry: decision + reason categories only (quoted parts removed); never the command text.
+const logGuard = (decision, reasons) =>
+  logEvent(projectDir(), { event: 'guard', hook: 'guard-bash', decision, reasons: [...reasons].map((r) => r.replace(/"[^"]*"|`[^`]*`/g, '…').slice(0, 120)) });
+if (denyReasons.size) {
+  logGuard('deny', denyReasons);
   decide('deny', `guard-bash: ${[...denyReasons].join('; ')}. Never allowed from an agent; if truly needed, the human must run it manually.`);
-if (askReasons.size)
+}
+if (askReasons.size) {
+  logGuard('ask', askReasons);
   decide('ask', `guard-bash: ${[...askReasons].join('; ')}. Needs explicit human approval (constitution → Human gates). Don't work around it; prefer a safer alternative or ask the user.`);
+}
 process.exit(0);

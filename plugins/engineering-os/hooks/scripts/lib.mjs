@@ -1,6 +1,59 @@
-// Shared helpers for hook scripts. Zero dependencies; Node >= 18; Linux/macOS/Windows.
-import { readFileSync } from 'node:fs';
+// Shared helpers for hook scripts and engines. Zero dependencies; Node >= 18; Linux/macOS/Windows.
+import { readFileSync, copyFileSync, unlinkSync, mkdirSync, appendFileSync, statSync, utimesSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+
+// Files that never count as "source" for gates, fingerprints, or class sizing: prose and images, and the
+// top-level docs/, .eng/, .claude/ trees. Manifests and lockfiles (requirements.txt, *.lock) are source.
+export const NON_SOURCE = /^(docs|\.eng|\.claude|\.github\/ISSUE_TEMPLATE)\/|\.(md|mdx|markdown|rst|adoc|png|jpe?g|gif|svg|ico|webp)$|(^|\/)(LICEN[CS]E|COPYING|NOTICE|CHANGELOG|AUTHORS)(\.\w+)?$|(^|\/)\.gitignore$/i;
+// Generated lockfiles: source for freshness, but not counted toward a class's file ceiling.
+export const LOCKFILE = /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|[\w.-]+\.lock|go\.sum)$/i;
+export const TEST_FILE = /(^|\/)(tests?|__tests__|spec|e2e)\/|[._-](test|spec)\.[a-z0-9]+$|(^|\/)test_[^/]+\.py$/i;
+
+// OS state that only engines and hooks may write: verification evidence (verify-latest.json and verify-*
+// run directories), the gate ledger, session state, telemetry. Other files under .eng/evidence/ stay
+// writable for scratch logs (constitution: context economy).
+export const PROTECTED_STATE = /\.eng[/\\](state([/\\"'\s]|$)|telemetry\.jsonl|evidence[/\\](verify-|gates\.jsonl))|\bgates\.jsonl\b|\bverify-latest\.json\b/i;
+export const PROTECTED_HOOKS = /\b(check-handoff|stop-verify)\.mjs\b/i;
+
+// Content fingerprint of the source tree (tracked + untracked, .gitignore respected), independent of
+// commits and mtimes: copy the index to a temp file, `git add -A` + `write-tree` into it, hash the
+// source entries. The real index is never modified. Returns null outside a git repo or on error.
+export function sourceFingerprint(dir) {
+  const run = (args, env) => execFileSync('git', args, { cwd: dir, encoding: 'utf8', timeout: 8000, maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, ...env } });
+  const tmpIndex = join(tmpdir(), `eng-fp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  try {
+    const index = resolve(dir, run(['rev-parse', '--git-path', 'index']).trim());
+    try {
+      copyFileSync(index, tmpIndex);
+      // Keep the index's own mtime: git re-hashes "racily clean" entries (changed in the same second the index
+      // was written) only by comparing against it; a fresh mtime would hide a same-size edit in that second.
+      const st = statSync(index);
+      utimesSync(tmpIndex, st.atime, st.mtime);
+    } catch {} // no commits/index yet: start empty
+    run(['add', '-A'], { GIT_INDEX_FILE: tmpIndex });
+    const tree = run(['write-tree'], { GIT_INDEX_FILE: tmpIndex }).trim();
+    // -z: paths unquoted (non-ASCII names would otherwise be C-quoted and escape the NON_SOURCE filter).
+    const entries = run(['ls-tree', '-r', '-z', '--full-tree', tree]).split('\0')
+      .filter((l) => l && !NON_SOURCE.test(l.slice(l.indexOf('\t') + 1)));
+    return createHash('sha256').update(entries.join('\n')).digest('hex').slice(0, 16);
+  } catch {
+    return null;
+  } finally {
+    try { unlinkSync(tmpIndex); } catch {}
+  }
+}
+
+// Append-only local telemetry for the OS itself. Never throws; never records command text or secrets.
+export function logEvent(dir, event) {
+  try {
+    mkdirSync(join(dir, '.eng'), { recursive: true });
+    appendFileSync(join(dir, '.eng', 'telemetry.jsonl'), `${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`);
+  } catch {}
+}
 
 export function readInput() {
   try {

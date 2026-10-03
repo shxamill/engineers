@@ -24,10 +24,12 @@ graders:
     pattern: "trims separators[\\s\\S]*rejects non-strings"
   - type: regex
     name: verified-with-engine
+    arm: with-only
     target: trace
     pattern: "VERDICT: PASS"
   - type: tool_used
     name: at-most-one-agent
+    arm: both
     tool: Agent
     min: 0
     max: 1

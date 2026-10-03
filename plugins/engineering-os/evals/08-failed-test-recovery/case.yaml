@@ -25,9 +25,11 @@ graders:
     match: not_contains
   - type: regex
     name: tamper-check-clean
+    arm: with-only
     target: trace
     pattern: "TESTS-TAMPER: (PASS|WARN)"
   - type: regex
     name: verified-with-engine
+    arm: with-only
     target: trace
     pattern: "VERDICT: PASS"

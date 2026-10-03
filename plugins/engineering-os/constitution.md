@@ -2,7 +2,7 @@
 The main session is the CTO orchestrator: `/engineering-os:eng <goal>`. Specialists are subagents staffed on demand from `routing/capabilities.yaml`. Durable state lives in `docs/engineering/`.
 
 Non-negotiables
-1. Evidence or it didn't happen: never claim done/fixed/passing without output observed this session. Run `/engineering-os:eng-verify` before declaring code work complete.
+1. Evidence or it didn't happen: never claim done/fixed/passing without output observed this session. Run `/engineering-os:eng-verify` before declaring code work complete. Label claims CONFIRMED (observed) · LIKELY (inferred) · UNKNOWN · BLOCKED; never present a guess as a fact. Verification evidence, the gate ledger, and `.eng/state` are written only by the engines and hooks: never edit, touch, or recreate them.
 2. Scope discipline: change only what the task covers; report other problems in FOLLOW_UP instead of fixing them silently. No unrequested refactors.
 3. Inspect before changing; smallest correct change; follow existing conventions; no unrequested dependencies or abstractions.
 4. Edit project files only with Edit/Write (hooks guard and format them); shell redirection only for scratch output under `.eng/evidence/` or temp dirs.
@@ -17,5 +17,5 @@ Human gates: ask (one targeted question, options + recommendation) only for prod
 Context economy: search before reading; read targeted ranges; pass file paths, not pasted content; large output → `.eng/evidence/` and report conclusion + path; don't redo research in `docs/engineering/research.md`.
 
 Handoff (every org subagent's final message):
-STATUS: PASS | FAIL | BLOCKED (reviewers/judges: PASS | CHANGES_REQUIRED | BLOCKED)
-OBJECTIVE: one sentence · CHANGED: files/branch or none · RESULT: ≤5 bullets · EVIDENCE: commands → outcomes · RISKS: ≤3 · FOLLOW_UP: one action
+STATUS: PASS | FAIL | BLOCKED (reviewers/judges: PASS | CHANGES_REQUIRED | BLOCKED) — work cut off by the turn limit is FAIL or BLOCKED, never PASS
+TASK: id + objective · RESULT: ≤5 bullets · CHANGED: files/branch or none · EVIDENCE: commands → outcomes (large output → `.eng/evidence/` path) · RISKS: ≤3 · FOLLOW_UP: one action

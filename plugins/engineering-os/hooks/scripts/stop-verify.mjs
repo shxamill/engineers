@@ -1,77 +1,29 @@
 #!/usr/bin/env node
-// Stop (main session) — deterministic completion gate, blocks ONCE per stop attempt (stop_hook_active):
-//  1. Source files changed this session (working tree OR commits since session start) need verification
-//     evidence (.eng/evidence/verify-latest.json) newer than the latest change.
-//  2. The class/flags in docs/engineering/status.md (Now) imply required reviewers (registry budgets +
-//     risk requirements). Each needs a PASS verdict in .eng/evidence/gates.jsonl newer than the latest change;
-//     a newer CHANGES_REQUIRED means the fix must be re-reviewed.
-//  3. The declared class must fit the diff (budget max_impl_files / max_areas), else reclassify upward.
-// Fails open on errors. Opt out per project with "stopGate": false in project-profile.json.
-import { existsSync, readFileSync, statSync } from 'node:fs';
+// Stop (main session) — deterministic completion gate, blocks ONCE per stop attempt (stop_hook_active).
+// When source files changed this session (working tree or commits since session start), requires, at the
+// current content fingerprint: eng-verify evidence, declared class/flags, class fitting the diff, risk flags
+// fitting the changed paths, acceptance criteria / completed plan by class, and a PASS from each required
+// reviewer. Gate logic lives in gates.mjs (shared with eng-status). Fails open on its own errors.
+// Opt out per project with "stopGate": false in docs/engineering/project-profile.json.
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
-import { readInput, block, projectDir, pluginRoot } from './lib.mjs';
-
-const NON_SOURCE = /(^|\/)(docs|\.eng|\.claude|\.github\/ISSUE_TEMPLATE)\/|\.(md|mdx|txt|rst|png|jpe?g|gif|svg|ico|lock)$|(^|\/)(LICENSE|CHANGELOG|\.gitignore)$/i;
-const TEST_FILE = /(^|\/)(tests?|__tests__|spec|e2e)\/|[._-](test|spec)\.[a-z0-9]+$|(^|\/)test_[^/]+\.py$/i;
-const GATE_SKILL ={ 'code-reviewer': '/engineering-os:eng-review', 'scope-judge': '/engineering-os:eng-judge', 'security-engineer': '/engineering-os:eng-secreview', 'adversarial-qa': '/engineering-os:eng-test (adversarial QA)' };
+import { readInput, block, projectDir, logEvent } from './lib.mjs';
 
 try {
   const input = readInput();
   if (input.stop_hook_active) process.exit(0);
   const dir = projectDir();
-  const readJson = (p) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; } };
-  if (readJson(join(dir, 'docs', 'engineering', 'project-profile.json'))?.stopGate === false) process.exit(0);
-  const git = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] });
-
-  const changed = new Set(git('status', '--porcelain', '-uall').split('\n').filter(Boolean).map((l) => l.slice(3).replace(/^"|"$/g, '').split(' -> ').pop()));
-  const sid = String(input.session_id || '').replace(/[^\w-]/g, '');
-  const start = sid ? readJson(join(dir, '.eng', 'state', `session-${sid}.json`)) : null;
-  if (start?.head) {
-    try { for (const f of git('diff', '--name-only', start.head, 'HEAD').split('\n').filter(Boolean)) changed.add(f); } catch {}
-  }
-  const source = [...changed].filter((f) => !NON_SOURCE.test(f));
-  if (!source.length) process.exit(0);
-  const latest = Math.max(...source.map((f) => { try { return statSync(join(dir, f)).mtimeMs; } catch { return 0; } }));
-
-  const missing = [];
-  const evidence = join(dir, '.eng', 'evidence', 'verify-latest.json');
-  if (!(existsSync(evidence) && statSync(evidence).mtimeMs >= latest && readJson(evidence)?.verdict))
-    missing.push('verification: run /engineering-os:eng-verify');
-
-  // Required reviewers from the declared class and risk flags.
-  const status = existsSync(join(dir, 'docs', 'engineering', 'status.md')) ? readFileSync(join(dir, 'docs', 'engineering', 'status.md'), 'utf8') : '';
-  const now = (status.split(/^## /m).find((s) => s.startsWith('Now')) || '');
-  const cls = (now.match(/Class:\s*\**\s*(TRIVIAL|SMALL|MEDIUM|LARGE|CRITICAL)\b/) || [])[1];
-  if (!cls) missing.push('classification: record `Class:` and `Flags:` in docs/engineering/status.md Now (/engineering-os:eng-intake); review gates are derived from it');
-  const { parseYaml } = await import(new URL('../../scripts/lib/yaml-lite.mjs', import.meta.url));
-  const reg = cls ? parseYaml(readFileSync(join(pluginRoot(), 'routing', 'capabilities.yaml'), 'utf8')) : null;
-  // Declared class vs actual diff size: self-classification drifts low (benchmark run 2, PROC-13).
-  const b = reg?.budgets?.[cls];
-  if (b?.max_impl_files) {
-    const impl = source.filter((f) => !TEST_FILE.test(f));
-    const areas = new Set(impl.map((f) => (f.includes('/') ? f.split('/')[0] : '.')));
-    if (impl.length > b.max_impl_files || areas.size > b.max_areas)
-      missing.push(`reclassify: ${impl.length} non-test source file(s) in ${areas.size} area(s) (${[...areas].join(', ')}) exceed ${cls} (≤${b.max_impl_files} files, ≤${b.max_areas} area); set a higher Class in status.md Now and run its gates`);
-  }
-  if (cls && cls !== 'TRIVIAL') {
-    const flags = ((now.match(/Flags:\s*([^\n·]*)/) || [])[1] || '').split(/[,\s]+/).filter((f) => reg.risk_requirements?.[f]);
-    const caps = new Set(reg.budgets?.[cls]?.reviewers || []);
-    for (const f of flags) for (const id of reg.risk_requirements[f]) if (['appsec', 'supply-chain', 'privacy'].includes(id)) caps.add(id);
-    const agents = new Set([...caps].map((id) => reg.capabilities.find((c) => c.id === id)?.agent).filter(Boolean));
-    const ledger = existsSync(join(dir, '.eng', 'evidence', 'gates.jsonl'))
-      ? readFileSync(join(dir, '.eng', 'evidence', 'gates.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter(Boolean)
-      : [];
-    for (const agent of agents) {
-      const fresh = ledger.filter((g) => g.agent === agent && g.at >= latest - 1000).sort((a, b) => b.at - a.at)[0];
-      if (!fresh) missing.push(`${agent} review (required for ${cls}${flags.length ? ` + ${flags.join(',')}` : ''}): run ${GATE_SKILL[agent] || agent}`);
-      else if (fresh.status !== 'PASS') missing.push(`${agent} returned ${fresh.status}: fix the findings and re-run ${GATE_SKILL[agent] || agent}`);
-    }
-  }
-  if (!missing.length) process.exit(0);
+  let profile = null;
+  try { profile = JSON.parse(readFileSync(join(dir, 'docs', 'engineering', 'project-profile.json'), 'utf8')); } catch {}
+  if (profile?.stopGate === false) process.exit(0);
+  const { evaluateGates } = await import('./gates.mjs');
+  const r = evaluateGates(dir, { sessionId: input.session_id });
+  if (!r.applies) process.exit(0);
+  logEvent(dir, { event: 'gate', result: r.missing.length ? 'block' : 'pass', missing: [...new Set(r.missing.map((m) => m.key))] });
+  if (!r.missing.length) process.exit(0);
   block(
-    `Completion gate: ${source.length} source file(s) changed this session (e.g. ${source.slice(0, 3).join(', ')}), but required evidence is missing or stale:\n- ${missing.join('\n- ')}\n` +
-      'Run them now (or state precisely why a gate does not apply and record it in status.md), then give the final report with the results.',
+    `Completion gate: ${r.source.length} source file(s) changed this session (e.g. ${r.source.slice(0, 3).join(', ')}), but required evidence is missing or stale:\n- ${r.missing.map((m) => m.msg).join('\n- ')}\n` +
+      'Run them now (or record a reason where the message allows it), then give the final report with the results.',
   );
 } catch {
   process.exit(0);

@@ -1,9 +1,28 @@
-# Engineering OS capability registry (machine-readable; read by scripts/eng-route.mjs and the validator).
+# Engineering OS capability registry — the single source of truth for staffing, review, and gates.
+# Read by scripts/eng-route.mjs, hooks/scripts/gates.mjs, scripts/eng-plan-check.mjs, and the validator.
 # Capabilities are activated on demand; several share one agent (fewer, deeper contexts).
-# tools / model / max_turns MUST equal the agent's frontmatter (validator-enforced).
+# tools / max_turns MUST equal the agent's frontmatter, and the agent's `model` MUST equal tiers[tier]
+# (validator-enforced). Budget impact is derived from tier x max_turns (no separate field).
 # topology: Team Topologies type - stream (value delivery), enabling (specialist support),
 #           platform (shared capability), subsystem (complicated subsystem).
-version: 1
+# reviewer_gate: the capability is an independent reviewer whose PASS the completion gate requires
+#                when the class budget or a risk flag names it; `skill` is the skill that runs it.
+version: 2
+
+# Model tiers → Claude Code model aliases. Remap aliases with ANTHROPIC_DEFAULT_{HAIKU,SONNET,OPUS}_MODEL;
+# override every subagent with CLAUDE_CODE_SUBAGENT_MODEL; escalate one call with the Agent `model` parameter.
+tiers:
+  low: haiku
+  medium: sonnet
+  high: opus
+
+# Intake risk dimensions; risk = the highest score (eng-route --dims).
+risk_dimensions: [blast-radius, reversibility, data-sensitivity, external-exposure, production-impact, dependency-uncertainty, architectural-uncertainty, security-sensitivity, operational-criticality]
+
+# Lifecycle gates the completion gate enforces, by class. Skip only with `Skipped: <gate> (<reason>)` in status.md Now.
+gates:
+  acceptance_criteria: [SMALL, MEDIUM, LARGE, CRITICAL]
+  plan_complete: [MEDIUM, LARGE, CRITICAL]
 
 # Per-class budgets. The orchestrator (main session) is always the owner; "max_agents" counts spawned subagents.
 # max_impl_files / max_areas: ceiling on changed non-test source files and top-level areas (first path segment);
@@ -34,6 +53,7 @@ budgets:
     retries: 2
     verify: standard
     reviewers: [scope-judge, code-review]
+    reviewers_if_flagged: [adversarial-qa] # PROC-6: MEDIUM work with any risk flag also gets adversarial QA
   LARGE:
     max_agents: 8
     concurrency: 4
@@ -77,6 +97,20 @@ risk_deliverables:
   ui: "loading, empty, error, and success states; keyboard and screen-reader access (labels, aria-live for status); how it was checked"
   irreversible: "ADR with alternatives; human approval recorded"
 
+# Changed non-test source paths that imply a risk flag (case-insensitive regex on the repo-relative path,
+# matched per path segment). The completion gate requires each implied flag to be declared in status.md
+# Now (`Flags:`) or waived with `Waived: <flag> (<reason>)`. new-dependency is implied by the verifier's
+# manifest diff, not by paths. Flags without an entry here are judgment-only.
+risk_paths:
+  auth: '(^|[/._-])(auth|authn|authz|authenticat\w*|authoriz\w*|login|logout|signin|signup|passwords?|passwd|jwt|oauth2?|oidc|saml|sso|credentials?|rbac|acl)([/._-]|$)|(^|/)sessions?(\.\w+)?(/|$)'
+  payments: '(^|[/._-])(payments?|billing|checkout|invoices?|stripe|paypal|subscriptions?|refunds?)([/._-]|$)'
+  pii: '(^|[/._-])(pii|gdpr|ssn|kyc|personal[-_]?data)([/._-]|$)'
+  secrets: '(^|[/._-])(secrets?|vault|kms)([/._-]|$)|(^|/)\.env\.(example|sample|template)$'
+  prod-data: '(^|/)(migrations?|seeds?)/|(^|/)schema\.(sql|prisma)$'
+  infra: '(^|/)(dockerfile|docker-compose[^/]*|compose\.ya?ml)$|^\.github/workflows/|(^|/)(terraform|infra|k8s|kubernetes|helm|pulumi|ansible)/|\.tf$'
+  ai: '(^|[/._-])(prompts?|llm|embeddings?|openai|anthropic)([/._-]|$)'
+  ui: '\.(tsx|jsx|vue|svelte|astro|css|scss|sass|less|html)$'
+
 capabilities:
   - id: product-management
     agent: product-manager
@@ -90,7 +124,7 @@ capabilities:
     outputs: [product.md, requirements.md]
     tools: [Read, Grep, Glob, Write, Edit, WebSearch, WebFetch]
     scopes: ["docs/engineering/**"]
-    model: sonnet
+    tier: medium
     max_turns: 30
     parallel: false
     depends: []
@@ -108,7 +142,7 @@ capabilities:
     outputs: [research.md entry]
     tools: [Read, Grep, Glob, WebSearch, WebFetch, Write, Edit]
     scopes: ["docs/engineering/research.md"]
-    model: sonnet
+    tier: medium
     max_turns: 30
     parallel: true
     depends: []
@@ -126,7 +160,7 @@ capabilities:
     outputs: [requirements.md#metrics]
     tools: [Read, Grep, Glob, Write, Edit, WebSearch, WebFetch]
     scopes: ["docs/engineering/**"]
-    model: sonnet
+    tier: medium
     max_turns: 30
     parallel: true
     depends: [product-management]
@@ -144,7 +178,7 @@ capabilities:
     outputs: [ux.md]
     tools: [Read, Grep, Glob, Write, Edit, WebFetch]
     scopes: ["docs/engineering/ux.md"]
-    model: sonnet
+    tier: medium
     max_turns: 30
     parallel: false
     depends: [product-management]
@@ -162,7 +196,7 @@ capabilities:
     outputs: [ux.md#visual]
     tools: [Read, Grep, Glob, Write, Edit, WebFetch]
     scopes: ["docs/engineering/ux.md"]
-    model: sonnet
+    tier: medium
     max_turns: 30
     parallel: true
     depends: [ux]
@@ -180,7 +214,7 @@ capabilities:
     outputs: [ux.md#tokens]
     tools: [Read, Grep, Glob, Write, Edit, WebFetch]
     scopes: ["docs/engineering/ux.md"]
-    model: sonnet
+    tier: medium
     max_turns: 30
     parallel: true
     depends: []
@@ -198,7 +232,7 @@ capabilities:
     outputs: [architecture.md, adr/]
     tools: [Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch]
     scopes: ["docs/engineering/**"]
-    model: opus
+    tier: high
     max_turns: 40
     parallel: false
     depends: [product-management]
@@ -216,7 +250,7 @@ capabilities:
     outputs: [code, tests]
     tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
     scopes: ["**/*.{tsx,jsx,vue,svelte,astro,css,scss}", "**/{components,pages,app,views}/**"]
-    model: sonnet
+    tier: medium
     max_turns: 60
     parallel: true
     depends: []
@@ -234,7 +268,7 @@ capabilities:
     outputs: [code, tests]
     tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
     scopes: ["**/{api,server,routes,controllers,handlers,services,middleware,bin,src}/**"]
-    model: sonnet
+    tier: medium
     max_turns: 60
     parallel: true
     depends: []
@@ -252,7 +286,7 @@ capabilities:
     outputs: [migrations, code, tests]
     tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
     scopes: ["**/{migrations,prisma,db,models,schema}/**", "**/*.sql"]
-    model: sonnet
+    tier: medium
     max_turns: 60
     parallel: false
     depends: [architecture]
@@ -270,7 +304,7 @@ capabilities:
     outputs: [code, tests]
     tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
     scopes: ["**/{mobile,app,ios,android}/**"]
-    model: sonnet
+    tier: medium
     max_turns: 60
     parallel: true
     depends: []
@@ -288,7 +322,7 @@ capabilities:
     outputs: [code, evals, tests]
     tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell, WebFetch]
     scopes: ["**/{ai,llm,ml,prompts,evals}/**"]
-    model: sonnet
+    tier: medium
     max_turns: 60
     parallel: true
     depends: []
@@ -306,7 +340,7 @@ capabilities:
     outputs: [code, tests]
     tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
     scopes: ["**/{integrations,clients,webhooks}/**"]
-    model: sonnet
+    tier: medium
     max_turns: 60
     parallel: true
     depends: []
@@ -324,7 +358,7 @@ capabilities:
     outputs: [ci config, docker, scripts]
     tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
     scopes: [".github/workflows/**", "**/Dockerfile*", "**/docker-compose*"]
-    model: sonnet
+    tier: medium
     max_turns: 50
     parallel: true
     depends: []
@@ -342,7 +376,7 @@ capabilities:
     outputs: [iac, runbooks]
     tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
     scopes: ["**/{infra,terraform,k8s,helm,deploy}/**", "**/*.tf"]
-    model: sonnet
+    tier: medium
     max_turns: 50
     parallel: false
     depends: [architecture]
@@ -360,7 +394,7 @@ capabilities:
     outputs: [instrumentation, dashboards, alerts]
     tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
     scopes: ["**/{observability,monitoring,telemetry}/**"]
-    model: sonnet
+    tier: medium
     max_turns: 50
     parallel: true
     depends: []
@@ -378,7 +412,7 @@ capabilities:
     outputs: [measurements, changes]
     tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
     scopes: ["**"]
-    model: sonnet
+    tier: medium
     max_turns: 50
     parallel: true
     depends: []
@@ -396,7 +430,7 @@ capabilities:
     outputs: [release-plan.md, deploy changes]
     tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
     scopes: [".github/workflows/**", "**/{deploy,release}/**"]
-    model: sonnet
+    tier: medium
     max_turns: 50
     parallel: false
     depends: []
@@ -414,7 +448,7 @@ capabilities:
     outputs: [test-plan.md, tests]
     tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
     scopes: ["**/{test,tests,__tests__,e2e,spec}/**", "**/*.{test,spec}.*"]
-    model: sonnet
+    tier: medium
     max_turns: 50
     parallel: true
     depends: []
@@ -432,7 +466,7 @@ capabilities:
     outputs: [test infra, tests]
     tools: [Read, Grep, Glob, Edit, Write, Bash, PowerShell]
     scopes: ["**/{e2e,playwright,cypress,test,tests}/**"]
-    model: sonnet
+    tier: medium
     max_turns: 50
     parallel: true
     depends: []
@@ -450,12 +484,14 @@ capabilities:
     outputs: [verdict]
     tools: [Read, Grep, Glob, Bash, PowerShell]
     scopes: []
-    model: opus
+    tier: high
     max_turns: 40
     parallel: true
     depends: []
     reviewers: []
     security: medium
+    reviewer_gate: true
+    skill: eng-review
   - id: scope-judge
     agent: scope-judge
     group: quality
@@ -468,12 +504,14 @@ capabilities:
     outputs: [verdict]
     tools: [Read, Grep, Glob, Bash, PowerShell]
     scopes: []
-    model: sonnet
+    tier: medium
     max_turns: 15
     parallel: true
     depends: []
     reviewers: []
     security: low
+    reviewer_gate: true
+    skill: eng-judge
   - id: adversarial-qa
     agent: adversarial-qa
     group: quality
@@ -486,12 +524,14 @@ capabilities:
     outputs: [failure report]
     tools: [Read, Grep, Glob, Bash, PowerShell]
     scopes: []
-    model: sonnet
+    tier: medium
     max_turns: 40
     parallel: true
     depends: []
     reviewers: []
     security: medium
+    reviewer_gate: true
+    skill: eng-test
   - id: debugging
     agent: debugger
     group: quality
@@ -504,7 +544,7 @@ capabilities:
     outputs: [fix, regression test, root cause]
     tools: [Read, Grep, Glob, Bash, PowerShell, Edit, Write]
     scopes: ["**"]
-    model: opus
+    tier: high
     max_turns: 60
     parallel: false
     depends: []
@@ -522,12 +562,14 @@ capabilities:
     outputs: [verdict, findings]
     tools: [Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch]
     scopes: ["docs/engineering/security.md"]
-    model: opus
+    tier: high
     max_turns: 50
     parallel: true
     depends: []
     reviewers: []
     security: high
+    reviewer_gate: true
+    skill: eng-secreview
   - id: security-testing
     agent: security-engineer
     group: security
@@ -540,7 +582,7 @@ capabilities:
     outputs: [findings]
     tools: [Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch]
     scopes: []
-    model: opus
+    tier: high
     max_turns: 50
     parallel: true
     depends: []
@@ -558,7 +600,7 @@ capabilities:
     outputs: [security.md]
     tools: [Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch]
     scopes: ["docs/engineering/security.md"]
-    model: opus
+    tier: high
     max_turns: 50
     parallel: false
     depends: [architecture]
@@ -576,12 +618,14 @@ capabilities:
     outputs: [security.md#privacy]
     tools: [Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch]
     scopes: ["docs/engineering/security.md"]
-    model: opus
+    tier: high
     max_turns: 50
     parallel: true
     depends: []
     reviewers: []
     security: high
+    reviewer_gate: true
+    skill: eng-secreview
   - id: supply-chain
     agent: security-engineer
     group: security
@@ -594,12 +638,14 @@ capabilities:
     outputs: [findings]
     tools: [Read, Grep, Glob, Bash, PowerShell, Write, Edit, WebSearch, WebFetch]
     scopes: []
-    model: opus
+    tier: high
     max_turns: 50
     parallel: true
     depends: []
     reviewers: []
     security: high
+    reviewer_gate: true
+    skill: eng-secreview
   - id: documentation
     agent: tech-writer
     group: knowledge
@@ -612,7 +658,7 @@ capabilities:
     outputs: [docs]
     tools: [Read, Grep, Glob, Edit, Write]
     scopes: ["**/*.md", "docs/**"]
-    model: haiku
+    tier: low
     max_turns: 25
     parallel: true
     depends: []
@@ -630,7 +676,7 @@ capabilities:
     outputs: [docs]
     tools: [Read, Grep, Glob, Edit, Write]
     scopes: ["**/*.md", "docs/**"]
-    model: haiku
+    tier: low
     max_turns: 25
     parallel: true
     depends: []

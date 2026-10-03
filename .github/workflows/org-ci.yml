@@ -24,3 +24,19 @@ jobs:
       - run: node plugins/engineering-os/scripts/validate-org.mjs
       - run: node plugins/engineering-os/scripts/verify-hooks.mjs
       - run: node plugins/engineering-os/scripts/test-engines.mjs
+
+  # Windows-style line endings on Linux (PROC-14) and proof that the suites catch regressions (A-17).
+  robustness:
+    name: autocrlf + mutation check (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: suites under core.autocrlf=true
+        run: |
+          printf '[core]\n\tautocrlf = true\n[user]\n\temail = ci@example.com\n\tname = ci\n' > "$RUNNER_TEMP/gitconfig-crlf"
+          GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-crlf" node plugins/engineering-os/scripts/test-engines.mjs
+          GIT_CONFIG_GLOBAL="$RUNNER_TEMP/gitconfig-crlf" node plugins/engineering-os/scripts/verify-hooks.mjs
+      - run: node plugins/engineering-os/scripts/mutation-check.mjs --jobs 4

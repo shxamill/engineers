@@ -5,6 +5,7 @@ _Owner: platform-engineer / orchestrator · Date: YYYY-MM-DD · Human approval: 
 LOCAL → CI → PREVIEW → STAGING → PRODUCTION (strike the ones this project doesn't have). Current target: <env>. Human approval required for PRODUCTION.
 
 ## Readiness checklist (every line needs evidence)
+Status is `PASS` (with evidence) or `N/A` (with the reason in Evidence). Check with `eng-release-check.mjs --target <env>`.
 | Item | Status | Evidence |
 |---|---|---|
 | Build artifact valid (commit/version) | | |
@@ -16,6 +17,11 @@ LOCAL → CI → PREVIEW → STAGING → PRODUCTION (strike the ones this projec
 | Monitoring, alerts, dashboards ready | | |
 | Rollback procedure defined (tested for CRITICAL) | | |
 | Release notes written | | |
+
+## Service levels (meaningful services only; 1–3 rows)
+| SLI | SLO | Rollback trigger |
+|---|---|---|
+| <e.g. availability of POST /orders> | <99.9% over 28 days> | <error rate > 2% for 5 min> |
 
 ## Rollout
 <strategy: direct | feature flag | canary __% → __% | blue/green; promotion criterion; who watches>

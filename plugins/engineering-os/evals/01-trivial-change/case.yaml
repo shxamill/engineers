@@ -18,6 +18,7 @@ graders:
     pattern: "You will receive a lowercase"
   - type: tool_used
     name: no-delegation
+    arm: both
     tool: Agent
     min: 0
     max: 0
