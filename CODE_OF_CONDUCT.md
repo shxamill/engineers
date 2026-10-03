@@ -10,4 +10,4 @@ Technical disagreement is welcome. Critique code, decisions, assumptions, and ev
 
 Maintainers may remove comments, close issues or pull requests, restrict participation, or take other reasonable action when conduct violates this policy.
 
-Report serious conduct concerns privately to **veluneproductions@gmail.com**. Do not include sensitive personal information unless it is necessary to explain the concern.
+Report serious conduct concerns privately through the repository owner **@shxamill**. Do not include sensitive personal information unless it is necessary to explain the concern.
