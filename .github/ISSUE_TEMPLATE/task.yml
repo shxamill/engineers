@@ -1,0 +1,35 @@
+name: Engineering task
+description: Track a bounded engineering task or maintenance item.
+title: "[task] "
+body:
+  - type: input
+    id: owner
+    attributes:
+      label: Owner
+      description: Person or team responsible for driving the task.
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: One clear outcome for this task.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Files, components, systems, or boundaries included and excluded.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Testable criteria, ideally with a verification method for each.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies / risks
+      description: Blocking work, assumptions, security considerations, or rollout concerns.

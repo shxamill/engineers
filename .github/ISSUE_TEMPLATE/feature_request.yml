@@ -1,0 +1,35 @@
+name: Feature request
+description: Propose a focused improvement to Engineering OS.
+title: "[feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem exists today, and who experiences it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: Describe the smallest useful change you are proposing.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: What alternatives were considered, including doing nothing?
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Define observable conditions that would make the change complete.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Engineering impact
+      description: Note architecture, compatibility, security, performance, or maintenance implications.

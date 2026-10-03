@@ -1,0 +1,11 @@
+# Default repository owner.
+# This repository currently lives under the maintainer account @shxamill.
+# When the project moves to a GitHub Organization, replace this with organization teams.
+
+* @shxamill
+
+# High-risk areas should remain explicitly owned even as the team grows.
+.github/ @shxamill
+plugins/engineering-os/hooks/ @shxamill
+plugins/engineering-os/scripts/ @shxamill
+plugins/engineering-os/routing/ @shxamill

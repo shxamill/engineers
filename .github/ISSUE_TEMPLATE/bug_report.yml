@@ -1,0 +1,48 @@
+name: Bug report
+description: Report a reproducible defect in Engineering OS.
+title: "[bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues first. Never include secrets or sensitive data.
+  - type: input
+    id: version
+    attributes:
+      label: Version / commit
+      description: Claude Code version, plugin version, or commit SHA where the issue occurs.
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and the expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Give the smallest reliable set of steps or commands that reproduces the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Claude Code version, Node version, and any other relevant environment details.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Include concise logs, failing checks, or links to a failing workflow. Redact secrets.
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: Explain who or what is affected and how severe the impact is.
+    validations:
+      required: true
